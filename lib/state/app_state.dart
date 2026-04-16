@@ -162,6 +162,24 @@ class AppState extends ChangeNotifier {
     await _notify(fakeAlert);
   }
 
+  Future<void> sendTestNotificationWithTemplates({
+    required String titleTemplate,
+    required String bodyTemplate,
+  }) async {
+    final now = DateTime.now();
+    final fakeAlert = AlertEvent(
+      queryId: -1,
+      queryName: 'Consulta de teste',
+      previousCount: 12,
+      currentCount: 15,
+      directUrl: settings.baseUrl,
+      createdAt: now,
+    );
+    final title = _templateService.render(titleTemplate, fakeAlert);
+    final body = _templateService.render(bodyTemplate, fakeAlert);
+    await _alertNotifier.showAlert(alert: fakeAlert, title: title, body: body);
+  }
+
   String exportBackupJson() {
     final payload = {
       'version': 1,

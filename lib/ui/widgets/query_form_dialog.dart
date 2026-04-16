@@ -77,6 +77,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                   validator: (value) =>
                       value == null || value.trim().isEmpty ? 'Obrigatorio' : null,
                 ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _queryUrl,
                   decoration: const InputDecoration(
@@ -92,7 +93,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 20),
                 const Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -100,7 +101,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                     style: TextStyle(fontSize: 12),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 20),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton(
@@ -134,7 +135,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _alertOn,
                   decoration: const InputDecoration(labelText: 'Notificar quando'),
@@ -182,7 +183,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                       style: TextStyle(fontSize: 12),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   TextFormField(
                     controller: _customTitle,
                     decoration: const InputDecoration(
@@ -190,16 +191,16 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                       hintText: 'Deixe vazio para usar o template global',
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   TextFormField(
                     controller: _customBody,
-                    maxLines: 2,
+                    maxLines: 5,
                     decoration: const InputDecoration(
                       labelText: 'Corpo personalizado',
                       hintText: 'Deixe vazio para usar o template global',
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   const Wrap(
                     spacing: 6,
                     runSpacing: 6,

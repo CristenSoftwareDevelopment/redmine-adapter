@@ -99,7 +99,7 @@ class _SettingsCardState extends State<SettingsCard> {
 
               // ── Conexão ──────────────────────────────────────────────────
               const _SectionHeader(icon: Icons.cloud_outlined, label: 'Conexao com Redmine'),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _baseUrlController,
                 decoration: const InputDecoration(
@@ -113,7 +113,7 @@ class _SettingsCardState extends State<SettingsCard> {
                   return null;
                 },
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _apiKeyController,
                 decoration: const InputDecoration(labelText: 'API Key'),
@@ -125,7 +125,7 @@ class _SettingsCardState extends State<SettingsCard> {
                   return null;
                 },
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _defaultPollController,
                 keyboardType: TextInputType.number,
@@ -138,7 +138,7 @@ class _SettingsCardState extends State<SettingsCard> {
                   return null;
                 },
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _alertCooldownController,
                 keyboardType: TextInputType.number,
@@ -182,12 +182,12 @@ class _SettingsCardState extends State<SettingsCard> {
               // ── Notificações ──────────────────────────────────────────────
               const _SectionHeader(
                   icon: Icons.notifications_outlined, label: 'Notificacoes'),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text(
                 'Template generico (usado quando nao ha template especifico)',
                 style: theme.textTheme.bodySmall,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _notificationTitleTemplateController,
                 decoration: const InputDecoration(
@@ -197,10 +197,10 @@ class _SettingsCardState extends State<SettingsCard> {
                 validator: (value) =>
                     value == null || value.trim().isEmpty ? 'Obrigatorio' : null,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _notificationBodyTemplateController,
-                maxLines: 2,
+                maxLines: 5,
                 decoration: const InputDecoration(
                   labelText: 'Corpo padrao',
                   hintText: defaultNotificationBodyTemplate,
@@ -209,11 +209,19 @@ class _SettingsCardState extends State<SettingsCard> {
                     value == null || value.trim().isEmpty ? 'Obrigatorio' : null,
               ),
               const SizedBox(height: 12),
+              _TestNotificationButton(
+                label: 'Testar template generico',
+                getTitleTemplate: () => _notificationTitleTemplateController.text.trim(),
+                getBodyTemplate: () => _notificationBodyTemplateController.text.trim(),
+                getFallbackTitle: null,
+                getFallbackBody: null,
+              ),
+              const SizedBox(height: 12),
               Text(
                 'Template para aumento de contagem (opcional)',
                 style: theme.textTheme.bodySmall,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _increaseTitleController,
                 decoration: const InputDecoration(
@@ -221,21 +229,29 @@ class _SettingsCardState extends State<SettingsCard> {
                   hintText: 'Deixe vazio para usar o template padrao',
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _increaseBodyController,
-                maxLines: 2,
+                maxLines: 5,
                 decoration: const InputDecoration(
                   labelText: 'Corpo — somente aumento',
                   hintText: 'Deixe vazio para usar o template padrao',
                 ),
               ),
               const SizedBox(height: 12),
+              _TestNotificationButton(
+                label: 'Testar template de aumento',
+                getTitleTemplate: () => _increaseTitleController.text.trim(),
+                getBodyTemplate: () => _increaseBodyController.text.trim(),
+                getFallbackTitle: () => _notificationTitleTemplateController.text.trim(),
+                getFallbackBody: () => _notificationBodyTemplateController.text.trim(),
+              ),
+              const SizedBox(height: 12),
               Text(
                 'Template para diminuicao de contagem (opcional)',
                 style: theme.textTheme.bodySmall,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _decreaseTitleController,
                 decoration: const InputDecoration(
@@ -243,14 +259,22 @@ class _SettingsCardState extends State<SettingsCard> {
                   hintText: 'Deixe vazio para usar o template padrao',
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _decreaseBodyController,
-                maxLines: 2,
+                maxLines: 5,
                 decoration: const InputDecoration(
                   labelText: 'Corpo — somente diminuicao',
                   hintText: 'Deixe vazio para usar o template padrao',
                 ),
+              ),
+              const SizedBox(height: 12),
+              _TestNotificationButton(
+                label: 'Testar template de diminuicao',
+                getTitleTemplate: () => _decreaseTitleController.text.trim(),
+                getBodyTemplate: () => _decreaseBodyController.text.trim(),
+                getFallbackTitle: () => _notificationTitleTemplateController.text.trim(),
+                getFallbackBody: () => _notificationBodyTemplateController.text.trim(),
               ),
               const SizedBox(height: 10),
               const Wrap(
@@ -265,12 +289,6 @@ class _SettingsCardState extends State<SettingsCard> {
                   Chip(label: Text('{time}')),
                   Chip(label: Text('{url}')),
                 ],
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => context.read<AppState>().sendTestNotification(),
-                icon: const Icon(Icons.notifications_active_outlined),
-                label: const Text('Testar notificacao'),
               ),
               const SizedBox(height: 20),
 
@@ -400,6 +418,42 @@ class _SettingsCardState extends State<SettingsCard> {
       ),
     );
     controller.dispose();
+  }
+}
+
+class _TestNotificationButton extends StatelessWidget {
+  const _TestNotificationButton({
+    required this.label,
+    required this.getTitleTemplate,
+    required this.getBodyTemplate,
+    required this.getFallbackTitle,
+    required this.getFallbackBody,
+  });
+
+  final String label;
+  final String Function() getTitleTemplate;
+  final String Function() getBodyTemplate;
+  final String Function()? getFallbackTitle;
+  final String Function()? getFallbackBody;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonalIcon(
+      onPressed: () {
+        final title = getTitleTemplate().isNotEmpty
+            ? getTitleTemplate()
+            : (getFallbackTitle?.call() ?? defaultNotificationTitleTemplate);
+        final body = getBodyTemplate().isNotEmpty
+            ? getBodyTemplate()
+            : (getFallbackBody?.call() ?? defaultNotificationBodyTemplate);
+        context.read<AppState>().sendTestNotificationWithTemplates(
+              titleTemplate: title,
+              bodyTemplate: body,
+            );
+      },
+      icon: const Icon(Icons.notifications_active_outlined),
+      label: Text(label),
+    );
   }
 }
 
