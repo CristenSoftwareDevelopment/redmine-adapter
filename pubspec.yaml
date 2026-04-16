@@ -1,0 +1,47 @@
+name: redmine_monitor_flutter
+description: Monitor de consultas do Redmine com alertas in-app
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.4.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.2
+  http: ^1.2.2
+  sqflite: ^2.3.3+1
+  sqflite_common_ffi: ^2.3.3
+  sqflite_common_ffi_web: ^1.0.0
+  path: ^1.9.0
+  url_launcher: ^6.3.0
+  local_notifier: ^0.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  macos:
+    generate: true
+    image_path: "assets/icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+  web:
+    generate: true
+    image_path: "assets/icon.png"
+    background_color: "#1A3A6B"
+    theme_color: "#1A3A6B"
+  ios:
+    generate: true
+    image_path: "assets/icon.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon.png

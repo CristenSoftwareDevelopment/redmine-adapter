@@ -1,0 +1,11 @@
+{
+  "name": "redmine-monitor-proxy",
+  "version": "0.1.0",
+  "description": "CORS proxy for the Redmine Monitor Flutter web build",
+  "main": "src/web_proxy.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/web_proxy.js"
+  },
+  "license": "MIT"
+}
