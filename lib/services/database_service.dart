@@ -11,7 +11,7 @@ class DatabaseService {
   DatabaseService._();
 
   static final DatabaseService instance = DatabaseService._();
-  static const _dbVersion = 7;
+  static const _dbVersion = 8;
 
   Database? _db;
 
@@ -66,6 +66,8 @@ class DatabaseService {
         await database.insert('settings', {'key': 'notification_increase_body_template', 'value': ''});
         await database.insert('settings', {'key': 'notification_decrease_title_template', 'value': ''});
         await database.insert('settings', {'key': 'notification_decrease_body_template', 'value': ''});
+        await database.insert('settings', {'key': 'monitor_start_hour', 'value': ''});
+        await database.insert('settings', {'key': 'monitor_end_hour', 'value': ''});
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -130,6 +132,18 @@ class DatabaseService {
             'notification_decrease_title_template',
             'notification_decrease_body_template',
           ]) {
+            await database.insert(
+              'settings',
+              {'key': key, 'value': ''},
+              conflictAlgorithm: ConflictAlgorithm.ignore,
+            );
+          }
+        }
+        if (oldVersion < 8) {
+          await database.execute(
+            'ALTER TABLE monitor_logs ADD COLUMN response_body TEXT',
+          );
+          for (final key in ['monitor_start_hour', 'monitor_end_hour']) {
             await database.insert(
               'settings',
               {'key': key, 'value': ''},
@@ -223,6 +237,12 @@ class DatabaseService {
           map['notification_decrease_body_template']?.isEmpty == true
               ? null
               : map['notification_decrease_body_template'],
+      monitorStartHour: map['monitor_start_hour']?.isEmpty == true
+          ? null
+          : int.tryParse(map['monitor_start_hour'] ?? ''),
+      monitorEndHour: map['monitor_end_hour']?.isEmpty == true
+          ? null
+          : int.tryParse(map['monitor_end_hour'] ?? ''),
     );
   }
 
@@ -305,6 +325,22 @@ class DatabaseService {
         {
           'key': 'notification_decrease_body_template',
           'value': settings.notificationDecreaseBodyTemplate ?? '',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
+        {
+          'key': 'monitor_start_hour',
+          'value': settings.monitorStartHour?.toString() ?? '',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
+        {
+          'key': 'monitor_end_hour',
+          'value': settings.monitorEndHour?.toString() ?? '',
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -418,6 +454,7 @@ class DatabaseService {
     required String level,
     required String message,
     String? queryName,
+    String? responseBody,
   }) async {
     final database = await db;
     await database.insert('monitor_logs', {
@@ -425,6 +462,7 @@ class DatabaseService {
       'message': message,
       'query_name': queryName,
       'created_at': DateTime.now().toIso8601String(),
+      'response_body': responseBody,
     });
   }
 

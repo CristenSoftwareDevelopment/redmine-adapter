@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart' show databaseFactory;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' show databaseFactoryFfi, sqfliteFfiInit;
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart' show databaseFactoryFfiWeb;
+import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'services/database_service.dart';
 import 'services/notifications/alert_notifier.dart';
@@ -15,12 +17,50 @@ Future<void> main() async {
   await _initDatabaseFactory();
   await AlertNotifier.instance.init();
 
+  if (_isDesktop) {
+    await _initWindowAndTray();
+  }
+
   runApp(
     ChangeNotifierProvider(
       create: (_) => AppState(databaseService: DatabaseService.instance)..init(),
       child: const RedmineMonitorApp(),
     ),
   );
+}
+
+bool get _isDesktop =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux);
+
+Future<void> _initWindowAndTray() async {
+  await windowManager.ensureInitialized();
+  const options = WindowOptions(
+    minimumSize: Size(600, 500),
+    skipTaskbar: false,
+    titleBarStyle: TitleBarStyle.normal,
+  );
+  await windowManager.waitUntilReadyToShow(options, () async {
+    await windowManager.show();
+    await windowManager.focus();
+  });
+
+  await trayManager.setIcon(
+    defaultTargetPlatform == TargetPlatform.windows
+        ? 'assets/icon.png'
+        : 'assets/icon.png',
+  );
+  final menu = Menu(
+    items: [
+      MenuItem(key: 'show', label: 'Abrir Redmine Monitor'),
+      MenuItem.separator(),
+      MenuItem(key: 'quit', label: 'Sair'),
+    ],
+  );
+  await trayManager.setContextMenu(menu);
+  await trayManager.setToolTip('Redmine Monitor — monitorando em segundo plano');
 }
 
 Future<void> _initDatabaseFactory() async {

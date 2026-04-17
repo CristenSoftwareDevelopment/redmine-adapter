@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -135,7 +137,69 @@ class _LogTile extends StatelessWidget {
               ],
             ),
           ),
+          if (log.responseBody != null)
+            IconButton(
+              tooltip: 'Ver resposta da API',
+              icon: const Icon(Icons.data_object_outlined, size: 18),
+              onPressed: () => _showResponseModal(context, log.responseBody!),
+            ),
         ],
+      ),
+    );
+  }
+
+  void _showResponseModal(BuildContext context, String rawBody) {
+    String formatted;
+    try {
+      final decoded = jsonDecode(rawBody);
+      formatted = const JsonEncoder.withIndent('  ').convert(decoded);
+    } catch (_) {
+      formatted = rawBody;
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680, maxHeight: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.data_object_outlined),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Resposta da API',
+                        style: Theme.of(ctx).textTheme.titleMedium,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      formatted,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

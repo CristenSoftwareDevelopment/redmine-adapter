@@ -16,6 +16,8 @@ class AppSettings {
     this.notificationIncreaseBodyTemplate,
     this.notificationDecreaseTitleTemplate,
     this.notificationDecreaseBodyTemplate,
+    this.monitorStartHour,
+    this.monitorEndHour,
   });
 
   final String baseUrl;
@@ -26,13 +28,28 @@ class AppSettings {
   final String notificationBodyTemplate;
   final String themeMode;
 
-  /// Optional override for alerts triggered by an increase in count.
   final String? notificationIncreaseTitleTemplate;
   final String? notificationIncreaseBodyTemplate;
-
-  /// Optional override for alerts triggered by a decrease in count.
   final String? notificationDecreaseTitleTemplate;
   final String? notificationDecreaseBodyTemplate;
+
+  /// Optional monitoring time window. null = always monitor.
+  /// Supports overnight ranges (e.g. startHour=22, endHour=6).
+  final int? monitorStartHour;
+  final int? monitorEndHour;
+
+  /// Returns true if monitoring is allowed at [hour] (0-23).
+  bool isWithinSchedule(int hour) {
+    final start = monitorStartHour;
+    final end = monitorEndHour;
+    if (start == null || end == null) return true;
+    if (start <= end) {
+      return hour >= start && hour < end;
+    } else {
+      // Overnight: e.g. start=22, end=6 → allowed 22,23,0,1,2,3,4,5
+      return hour >= start || hour < end;
+    }
+  }
 
   AppSettings copyWith({
     String? baseUrl,
@@ -46,6 +63,8 @@ class AppSettings {
     Object? notificationIncreaseBodyTemplate = _sentinel,
     Object? notificationDecreaseTitleTemplate = _sentinel,
     Object? notificationDecreaseBodyTemplate = _sentinel,
+    Object? monitorStartHour = _sentinel,
+    Object? monitorEndHour = _sentinel,
   }) {
     return AppSettings(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -68,9 +87,14 @@ class AppSettings {
       notificationDecreaseBodyTemplate: notificationDecreaseBodyTemplate == _sentinel
           ? this.notificationDecreaseBodyTemplate
           : notificationDecreaseBodyTemplate as String?,
+      monitorStartHour: monitorStartHour == _sentinel
+          ? this.monitorStartHour
+          : monitorStartHour as int?,
+      monitorEndHour: monitorEndHour == _sentinel
+          ? this.monitorEndHour
+          : monitorEndHour as int?,
     );
   }
 }
 
-// Sentinel used to distinguish "not provided" from explicit null in copyWith.
 const _sentinel = Object();

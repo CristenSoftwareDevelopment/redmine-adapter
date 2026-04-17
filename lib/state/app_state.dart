@@ -194,6 +194,8 @@ class AppState extends ChangeNotifier {
         'notificationIncreaseBodyTemplate': settings.notificationIncreaseBodyTemplate,
         'notificationDecreaseTitleTemplate': settings.notificationDecreaseTitleTemplate,
         'notificationDecreaseBodyTemplate': settings.notificationDecreaseBodyTemplate,
+        'monitorStartHour': settings.monitorStartHour,
+        'monitorEndHour': settings.monitorEndHour,
       },
       'queries': queries
           .map((q) => {
@@ -247,6 +249,8 @@ class AppState extends ChangeNotifier {
           settingsMap['notificationDecreaseTitleTemplate'] as String?,
       notificationDecreaseBodyTemplate:
           settingsMap['notificationDecreaseBodyTemplate'] as String?,
+      monitorStartHour: settingsMap['monitorStartHour'] as int?,
+      monitorEndHour: settingsMap['monitorEndHour'] as int?,
     );
 
     await _databaseService.saveSettings(importedSettings);

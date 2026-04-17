@@ -45,6 +45,7 @@ class RedmineApiService {
           uri: uri,
           durationMs: durationMs,
           statusCode: response.statusCode,
+          responseBody: response.body,
         );
       } on RetryableRequestException catch (error) {
         lastError = error;
@@ -202,12 +203,14 @@ class FetchCountResult {
     required this.uri,
     required this.durationMs,
     required this.statusCode,
+    required this.responseBody,
   });
 
   final int count;
   final Uri uri;
   final int durationMs;
   final int statusCode;
+  final String responseBody;
 }
 
 class RetryableRequestException implements Exception {

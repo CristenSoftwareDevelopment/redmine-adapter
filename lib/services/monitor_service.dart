@@ -124,6 +124,16 @@ class MonitorService {
       return;
     }
 
+    // Schedule restriction check
+    if (!settings.isWithinSchedule(DateTime.now().hour)) {
+      await _log(
+        level: 'info',
+        message: 'Fora do horario configurado (${settings.monitorStartHour}h–${settings.monitorEndHour}h). Consulta ignorada.',
+        queryName: query.name,
+      );
+      return;
+    }
+
     if (settings.baseUrl.trim().isEmpty || settings.apiKey.trim().isEmpty) {
       if (!_missingConfigLogged.contains(queryId)) {
         _missingConfigLogged.add(queryId);
@@ -163,6 +173,7 @@ class MonitorService {
         message:
             'Consulta executada com sucesso. Total atual: $currentCount. HTTP ${result.statusCode} em ${result.durationMs}ms.',
         queryName: query.name,
+        responseBody: result.responseBody,
       );
 
       if (previous != null && previous != currentCount) {
@@ -236,11 +247,13 @@ class MonitorService {
     required String level,
     required String message,
     String? queryName,
+    String? responseBody,
   }) async {
     await databaseService.addMonitorLog(
       level: level,
       message: message,
       queryName: queryName,
+      responseBody: responseBody,
     );
   }
 

@@ -24,6 +24,9 @@ class _SettingsCardState extends State<SettingsCard> {
   late final TextEditingController _decreaseTitleController;
   late final TextEditingController _decreaseBodyController;
   String _themeMode = defaultThemeMode;
+  bool _scheduleEnabled = false;
+  int _scheduleStart = 8;
+  int _scheduleEnd = 18;
   bool _seeded = false;
 
   @override
@@ -57,6 +60,9 @@ class _SettingsCardState extends State<SettingsCard> {
     _decreaseTitleController.text = settings.notificationDecreaseTitleTemplate ?? '';
     _decreaseBodyController.text = settings.notificationDecreaseBodyTemplate ?? '';
     _themeMode = settings.themeMode;
+    _scheduleEnabled = settings.monitorStartHour != null;
+    _scheduleStart = settings.monitorStartHour ?? 8;
+    _scheduleEnd = settings.monitorEndHour ?? 18;
     _seeded = true;
   }
 
@@ -151,6 +157,80 @@ class _SettingsCardState extends State<SettingsCard> {
                   return null;
                 },
               ),
+              const SizedBox(height: 20),
+
+              // ── Horário de monitoração ────────────────────────────────────
+              const _SectionHeader(icon: Icons.schedule_outlined, label: 'Horario de monitoracao'),
+              const SizedBox(height: 4),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _scheduleEnabled,
+                onChanged: (value) => setState(() => _scheduleEnabled = value),
+                title: const Text('Restringir horario de monitoracao'),
+                subtitle: Text(
+                  _scheduleEnabled
+                      ? 'Monitorar apenas das ${_scheduleStart.toString().padLeft(2, '0')}:00 às ${_scheduleEnd.toString().padLeft(2, '0')}:00'
+                      : 'Monitorar sempre (sem restricao de horario)',
+                ),
+              ),
+              if (_scheduleEnabled) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        initialValue: _scheduleStart,
+                        decoration: const InputDecoration(
+                          labelText: 'Hora de inicio',
+                          isDense: true,
+                        ),
+                        items: List.generate(
+                          24,
+                          (h) => DropdownMenuItem(
+                            value: h,
+                            child: Text('${h.toString().padLeft(2, '0')}:00'),
+                          ),
+                        ),
+                        onChanged: (v) => setState(() => _scheduleStart = v ?? 8),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        initialValue: _scheduleEnd,
+                        decoration: const InputDecoration(
+                          labelText: 'Hora de fim',
+                          isDense: true,
+                        ),
+                        items: List.generate(
+                          24,
+                          (h) => DropdownMenuItem(
+                            value: h,
+                            child: Text('${h.toString().padLeft(2, '0')}:00'),
+                          ),
+                        ),
+                        onChanged: (v) => setState(() => _scheduleEnd = v ?? 18),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_scheduleStart == _scheduleEnd)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Atenção: inicio e fim iguais desativam toda monitoracao.',
+                      style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
+                    ),
+                  ),
+                if (_scheduleStart > _scheduleEnd)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Janela noturna: monitora das ${_scheduleStart.toString().padLeft(2, '0')}h até ${_scheduleEnd.toString().padLeft(2, '0')}h do dia seguinte.',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+              ],
               const SizedBox(height: 20),
 
               // ── Aparência ─────────────────────────────────────────────────
@@ -356,6 +436,8 @@ class _SettingsCardState extends State<SettingsCard> {
                           _decreaseBodyController.text.trim().isEmpty
                               ? null
                               : _decreaseBodyController.text.trim(),
+                      monitorStartHour: _scheduleEnabled ? _scheduleStart : null,
+                      monitorEndHour: _scheduleEnabled ? _scheduleEnd : null,
                     );
 
                     await state.saveSettings(settings);

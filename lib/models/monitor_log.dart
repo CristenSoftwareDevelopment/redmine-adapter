@@ -5,6 +5,7 @@ class MonitorLog {
     required this.message,
     this.queryName,
     required this.createdAt,
+    this.responseBody,
   });
 
   final int? id;
@@ -13,6 +14,9 @@ class MonitorLog {
   final String? queryName;
   final DateTime createdAt;
 
+  /// Raw JSON response body from the API, stored only for 'success' entries.
+  final String? responseBody;
+
   Map<String, Object?> toDbMap() {
     return {
       'id': id,
@@ -20,6 +24,7 @@ class MonitorLog {
       'message': message,
       'query_name': queryName,
       'created_at': createdAt.toIso8601String(),
+      'response_body': responseBody,
     };
   }
 
@@ -30,6 +35,7 @@ class MonitorLog {
       message: map['message'] as String,
       queryName: map['query_name'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
+      responseBody: map['response_body'] as String?,
     );
   }
 }

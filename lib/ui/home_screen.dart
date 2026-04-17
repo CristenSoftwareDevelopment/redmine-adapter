@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../models/alert_event.dart';
 import '../state/app_state.dart';
@@ -9,6 +12,12 @@ import 'widgets/monitoring_health_card.dart';
 import 'widgets/queries_card.dart';
 import 'widgets/settings_card.dart';
 
+bool get _isDesktop =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux);
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -16,8 +25,55 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with WindowListener, TrayListener {
   String _lastAlertKey = '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isDesktop) {
+      windowManager.addListener(this);
+      trayManager.addListener(this);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_isDesktop) {
+      windowManager.removeListener(this);
+      trayManager.removeListener(this);
+    }
+    super.dispose();
+  }
+
+  // Intercept window close → hide instead of quit
+  @override
+  void onWindowClose() async {
+    await windowManager.hide();
+  }
+
+  // Tray double-click → show window
+  @override
+  void onTrayIconMouseDown() {
+    windowManager.show();
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    trayManager.popUpContextMenu();
+  }
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    switch (menuItem.key) {
+      case 'show':
+        windowManager.show();
+        windowManager.focus();
+      case 'quit':
+        windowManager.destroy();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
