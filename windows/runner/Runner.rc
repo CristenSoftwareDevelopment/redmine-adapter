@@ -94,7 +94,7 @@ BEGIN
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "redmine_monitor" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026. All rights reserved." "\0"
-            VALUE "OriginalFilename", "Redmine Monitor.exe" "\0"
+            VALUE "OriginalFilename", "RedmineMonitor.exe" "\0"
             VALUE "ProductName", "Redmine Monitor" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
