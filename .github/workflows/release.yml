@@ -59,7 +59,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: RedmineMonitor-${{ steps.version.outputs.VERSION }}-windows-setup.exe
+          path: windows/installer/RedmineMonitor-${{ steps.version.outputs.VERSION }}-windows-setup.exe
           retention-days: 1
 
   # ── macOS ────────────────────────────────────────────────────────────────────
