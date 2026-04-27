@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -27,6 +29,14 @@ class DatabaseService {
     final path = kIsWeb
         ? 'redmine_monitor.db'
         : join(await getDatabasesPath(), 'redmine_monitor.db');
+
+    if (!kIsWeb) {
+      final dir = Directory(dirname(path));
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+    }
+
     return openDatabase(
       path,
       version: _dbVersion,
