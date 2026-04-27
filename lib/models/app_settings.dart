@@ -3,12 +3,13 @@ const defaultNotificationBodyTemplate =
     'Mudou de {previousCount} para {currentCount} ({diff}) às {time}';
 const defaultThemeMode = 'system';
 
+/// Global application settings (connection, notifications, appearance).
+/// Per-query scheduling and polling are stored in [MonitoredQuery].
 class AppSettings {
   AppSettings({
     required this.baseUrl,
     required this.apiKey,
-    required this.defaultPollSeconds,
-    this.alertCooldownSeconds = 600,
+    this.accountName,
     this.notificationTitleTemplate = defaultNotificationTitleTemplate,
     this.notificationBodyTemplate = defaultNotificationBodyTemplate,
     this.themeMode = defaultThemeMode,
@@ -16,14 +17,11 @@ class AppSettings {
     this.notificationIncreaseBodyTemplate,
     this.notificationDecreaseTitleTemplate,
     this.notificationDecreaseBodyTemplate,
-    this.monitorStartHour,
-    this.monitorEndHour,
   });
 
   final String baseUrl;
   final String apiKey;
-  final int defaultPollSeconds;
-  final int alertCooldownSeconds;
+  final String? accountName;
   final String notificationTitleTemplate;
   final String notificationBodyTemplate;
   final String themeMode;
@@ -33,29 +31,10 @@ class AppSettings {
   final String? notificationDecreaseTitleTemplate;
   final String? notificationDecreaseBodyTemplate;
 
-  /// Optional monitoring time window. null = always monitor.
-  /// Supports overnight ranges (e.g. startHour=22, endHour=6).
-  final int? monitorStartHour;
-  final int? monitorEndHour;
-
-  /// Returns true if monitoring is allowed at [hour] (0-23).
-  bool isWithinSchedule(int hour) {
-    final start = monitorStartHour;
-    final end = monitorEndHour;
-    if (start == null || end == null) return true;
-    if (start <= end) {
-      return hour >= start && hour < end;
-    } else {
-      // Overnight: e.g. start=22, end=6 → allowed 22,23,0,1,2,3,4,5
-      return hour >= start || hour < end;
-    }
-  }
-
   AppSettings copyWith({
     String? baseUrl,
     String? apiKey,
-    int? defaultPollSeconds,
-    int? alertCooldownSeconds,
+    Object? accountName = _sentinel,
     String? notificationTitleTemplate,
     String? notificationBodyTemplate,
     String? themeMode,
@@ -63,14 +42,11 @@ class AppSettings {
     Object? notificationIncreaseBodyTemplate = _sentinel,
     Object? notificationDecreaseTitleTemplate = _sentinel,
     Object? notificationDecreaseBodyTemplate = _sentinel,
-    Object? monitorStartHour = _sentinel,
-    Object? monitorEndHour = _sentinel,
   }) {
     return AppSettings(
       baseUrl: baseUrl ?? this.baseUrl,
       apiKey: apiKey ?? this.apiKey,
-      defaultPollSeconds: defaultPollSeconds ?? this.defaultPollSeconds,
-      alertCooldownSeconds: alertCooldownSeconds ?? this.alertCooldownSeconds,
+      accountName: accountName == _sentinel ? this.accountName : accountName as String?,
       notificationTitleTemplate:
           notificationTitleTemplate ?? this.notificationTitleTemplate,
       notificationBodyTemplate: notificationBodyTemplate ?? this.notificationBodyTemplate,
@@ -87,12 +63,6 @@ class AppSettings {
       notificationDecreaseBodyTemplate: notificationDecreaseBodyTemplate == _sentinel
           ? this.notificationDecreaseBodyTemplate
           : notificationDecreaseBodyTemplate as String?,
-      monitorStartHour: monitorStartHour == _sentinel
-          ? this.monitorStartHour
-          : monitorStartHour as int?,
-      monitorEndHour: monitorEndHour == _sentinel
-          ? this.monitorEndHour
-          : monitorEndHour as int?,
     );
   }
 }

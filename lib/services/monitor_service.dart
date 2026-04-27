@@ -35,7 +35,6 @@ class MonitorService {
 
   final Map<int, Timer> _timers = {};
   final Map<int, int?> _lastCounts = {};
-  final Map<int, DateTime> _lastAlertAt = {};
   final Set<int> _running = HashSet<int>();
   final Set<int> _missingConfigLogged = {};
   Timer? _pruneTimer;
@@ -52,15 +51,11 @@ class MonitorService {
 
     final settings = await databaseService.loadSettings();
     final queries = await databaseService.listQueries();
-    final alerts = await databaseService.listAlerts(limit: 300);
     final enabledQueries = queries.where((q) => q.enabled && q.id != null).toList();
-    _lastAlertAt
-      ..clear()
-      ..addEntries(alerts.map((a) => MapEntry(a.queryId, a.createdAt)));
     _missingConfigLogged.clear();
     await _log(
       level: 'info',
-      message: 'Monitoracao iniciada com ${enabledQueries.length} consulta(s) ativa(s).',
+      message: 'Monitoração iniciada com ${enabledQueries.length} consulta(s) ativa(s).',
     );
 
     _pruneTimer = Timer.periodic(_pruneInterval, (_) async {
@@ -70,8 +65,7 @@ class MonitorService {
 
     for (final query in enabledQueries) {
       _lastCounts[query.id!] = query.lastCount;
-      final pollSeconds = query.pollSeconds ?? settings.defaultPollSeconds;
-      final safeSeconds = pollSeconds < 10 ? 10 : pollSeconds;
+      final safeSeconds = query.pollSeconds.clamp(minPollSeconds, 86400);
       _timers[query.id!] = Timer.periodic(
         Duration(seconds: safeSeconds),
         (_) => _checkQuery(settings, query, source: 'timer'),
@@ -89,10 +83,9 @@ class MonitorService {
     }
     _timers.clear();
     _lastCounts.clear();
-    _lastAlertAt.clear();
     _running.clear();
     _missingConfigLogged.clear();
-    await _log(level: 'info', message: 'Monitoracao parada.');
+    await _log(level: 'info', message: 'Monitoração parada.');
   }
 
   Future<void> runQueryNow(int queryId) async {
@@ -107,7 +100,7 @@ class MonitorService {
     }
 
     if (query == null) {
-      await _log(level: 'warn', message: 'Consulta nao encontrada para execucao manual.');
+      await _log(level: 'warn', message: 'Consulta não encontrada para execução manual.');
       return;
     }
 
@@ -124,11 +117,12 @@ class MonitorService {
       return;
     }
 
-    // Schedule restriction check
-    if (!settings.isWithinSchedule(DateTime.now().hour)) {
+    // Per-query schedule check
+    if (!query.isWithinSchedule(DateTime.now())) {
       await _log(
         level: 'info',
-        message: 'Fora do horario configurado (${settings.monitorStartHour}h–${settings.monitorEndHour}h). Consulta ignorada.',
+        message:
+            'Fora do horário configurado (${_weekdaysLabel(query.scheduleWeekdays)} ${query.scheduleStartHour.toString().padLeft(2, '0')}h–${query.scheduleEndHour.toString().padLeft(2, '0')}h). Consulta ignorada.',
         queryName: query.name,
       );
       return;
@@ -139,7 +133,7 @@ class MonitorService {
         _missingConfigLogged.add(queryId);
         await _log(
           level: 'warn',
-          message: 'Consulta ignorada por configuracao incompleta.',
+          message: 'Consulta ignorada por configuração incompleta.',
           queryName: query.name,
         );
       }
@@ -151,7 +145,7 @@ class MonitorService {
     try {
       await _log(
         level: 'info',
-        message: 'Executando monitoracao ($source).',
+        message: 'Executando monitoração ($source).',
         queryName: query.name,
       );
       final result = await redmineApiService.fetchCountDetailed(
@@ -188,24 +182,10 @@ class MonitorService {
           await _log(
             level: 'info',
             message:
-                'Alteracao detectada ($previous -> $currentCount), mas nao atende o criterio de alerta configurado (${query.alertOn}).',
+                'Alteração detectada ($previous -> $currentCount), mas não atende o critério de alerta configurado (${query.alertOn}).',
             queryName: query.name,
           );
           _onQueryUpdate();
-          return;
-        }
-
-        final lastAlertAt = _lastAlertAt[queryId];
-        final cooldown = Duration(seconds: settings.alertCooldownSeconds);
-        final shouldSkipByCooldown =
-            lastAlertAt != null && DateTime.now().difference(lastAlertAt) < cooldown;
-        if (shouldSkipByCooldown) {
-          await _log(
-            level: 'warn',
-            message:
-                'Alteracao detectada, mas dentro do cooldown de ${settings.alertCooldownSeconds}s.',
-            queryName: query.name,
-          );
           return;
         }
 
@@ -219,11 +199,10 @@ class MonitorService {
         );
 
         final persistedAlert = await databaseService.addAlert(alert);
-        _lastAlertAt[queryId] = now;
         await _log(
           level: 'alert',
           message:
-              'Alteracao detectada: $previous -> $currentCount. Endpoint: ${result.uri}',
+              'Alteração detectada: $previous -> $currentCount. Endpoint: ${result.uri}',
           queryName: query.name,
         );
         await SystemSound.play(SystemSoundType.alert);
@@ -255,6 +234,13 @@ class MonitorService {
       queryName: queryName,
       responseBody: responseBody,
     );
+  }
+
+  static const _dayNames = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+
+  String _weekdaysLabel(List<int> days) {
+    if (days.isEmpty) return '—';
+    return days.map((d) => _dayNames[(d - 1).clamp(0, 6)]).join(', ');
   }
 
   String _buildDirectUrl(String baseUrl, String directUrl) {

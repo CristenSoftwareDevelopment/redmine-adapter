@@ -13,6 +13,51 @@ class RedmineApiService {
     defaultValue: 'http://localhost:4311',
   );
 
+  /// Fetches the current user's full name from GET /my/account.json.
+  /// Throws an [Exception] if the credentials are invalid or the request fails.
+  Future<String> fetchAccountName({
+    required String baseUrl,
+    required String apiKey,
+  }) async {
+    final normalizedBase =
+        baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    final uri = Uri.parse('$normalizedBase/my/account.json');
+
+    late http.Response response;
+    try {
+      if (kIsWeb) {
+        response = await _fetchViaProxy(uri, apiKey);
+      } else {
+        response = await http.get(
+          uri,
+          headers: {
+            'Accept': 'application/json',
+            'X-Redmine-API-Key': apiKey,
+          },
+        );
+      }
+    } on http.ClientException catch (e) {
+      throw Exception('Falha de rede: ${e.message}');
+    }
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('Credenciais inválidas (HTTP ${response.statusCode}).');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Erro ao conectar ao Redmine (HTTP ${response.statusCode}).');
+    }
+
+    final dynamic decoded = jsonDecode(response.body);
+    final user = decoded['user'];
+    if (user == null) throw Exception('Resposta inesperada do Redmine.');
+
+    final firstname = user['firstname'] as String? ?? '';
+    final lastname = user['lastname'] as String? ?? '';
+    final fullName = '$firstname $lastname'.trim();
+    if (fullName.isEmpty) throw Exception('Nome de usuário não encontrado.');
+    return fullName;
+  }
+
   Future<int> fetchCount({
     required AppSettings settings,
     required MonitoredQuery query,
@@ -78,7 +123,7 @@ class RedmineApiService {
       decoded = jsonDecode(response.body);
     } on FormatException {
       throw Exception(
-        'Resposta nao esta em JSON. Verifique se a consulta aponta para /issues.json e se a API key esta valida.',
+        'Resposta não está em JSON. Verifique se a consulta aponta para /issues.json e se a API key está válida.',
       );
     }
     final value = _readPath(decoded, query.countPath);
@@ -92,7 +137,7 @@ class RedmineApiService {
     }
 
     throw Exception(
-      'Nao foi possivel ler contagem em "${query.countPath}" para ${query.name}',
+      'Não foi possível ler contagem em "${query.countPath}" para ${query.name}',
     );
   }
 
@@ -124,7 +169,7 @@ class RedmineApiService {
     } on http.ClientException catch (error) {
       throw RetryableRequestException(
         kIsWeb
-            ? 'Falha de rede no proxy (${error.message}). Verifique se o proxy local esta rodando em $_proxyBaseUrl.'
+            ? 'Falha de rede no proxy (${error.message}). Verifique se o proxy local está rodando em $_proxyBaseUrl.'
             : 'Falha de rede ao consultar Redmine (${error.message}).',
       );
     } on TimeoutException {

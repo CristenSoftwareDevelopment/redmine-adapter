@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/alert_event.dart';
 import '../../services/notifications/notification_template_service.dart';
 import '../../state/app_state.dart';
+import '../../services/theme_service.dart';
 
 class AlertsCard extends StatelessWidget {
   const AlertsCard({super.key});
@@ -12,10 +13,10 @@ class AlertsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final dark = Theme.of(context).brightness == Brightness.dark;
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    return Container(
+      decoration: surfaceCard(dark: dark),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -26,18 +27,24 @@ class AlertsCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Alertas recentes',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: AppText.cardTitle(dark: dark),
                   ),
                 ),
                 TextButton(
                   onPressed: state.alerts.isEmpty ? null : state.clearAlerts,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.notionBlue,
+                  ),
                   child: const Text('Limpar tudo'),
                 ),
               ],
             ),
             const SizedBox(height: 10),
             if (state.alerts.isEmpty)
-              const Text('Sem alertas ainda.')
+              Text(
+                'Sem alertas ainda.',
+                style: AppText.captionLight(dark: dark),
+              )
             else
               ...state.alerts.map(
                 (alert) => _AlertTile(
@@ -61,8 +68,7 @@ class _AlertTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
-    final scheme = Theme.of(context).colorScheme;
-    final theme = Theme.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final diff = alert.diff;
     final isIncrease = diff > 0;
     final isDecrease = diff < 0;
@@ -72,29 +78,29 @@ class _AlertTile extends StatelessWidget {
     final body = templateService.render(settings.notificationBodyTemplate, alert);
 
     final diffColor = isIncrease
-        ? Colors.green
+        ? AppColors.green
         : isDecrease
-            ? Colors.red
-            : scheme.outline;
+            ? AppColors.orange
+            : AppColors.warmGray500;
 
     final diffPrefix = diff > 0 ? '+' : '';
 
     return Opacity(
-      opacity: alert.isRead ? 0.55 : 1.0,
+      opacity: alert.isRead ? 0.6 : 1.0,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+        margin: const EdgeInsets.only(bottom: Sp.s8),
+        padding: const EdgeInsets.fromLTRB(Sp.s12, 10, Sp.s8, 10),
         decoration: BoxDecoration(
           color: alert.isRead
-              ? scheme.surfaceContainerHighest.withValues(alpha: 0.3)
-              : scheme.primaryContainer.withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(14),
-          border: alert.isRead
-              ? null
-              : Border.all(
-                  color: scheme.primary.withValues(alpha: 0.25),
-                  width: 1,
-                ),
+              ? (dark ? const Color(0xFF2A2825) : AppColors.warmWhite)
+              : AppColors.notionBlue.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(AppRadius.standard),
+          border: Border.all(
+            color: alert.isRead
+                ? (dark ? AppColors.darkBorder : AppColors.whisperBorder)
+                : AppColors.notionBlue.withValues(alpha: 0.18),
+            width: 1,
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -105,7 +111,7 @@ class _AlertTile extends StatelessWidget {
                 alert.isRead
                     ? Icons.notifications_outlined
                     : Icons.notifications_active_outlined,
-                color: alert.isRead ? scheme.outline : scheme.primary,
+                color: alert.isRead ? AppColors.warmGray500 : AppColors.notionBlue,
                 size: 22,
               ),
             ),
@@ -115,30 +121,30 @@ class _AlertTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: alert.isRead ? FontWeight.w400 : FontWeight.w700,
+                    style: AppText.bodyMedium(dark: dark).copyWith(
+                      fontWeight: alert.isRead ? FontWeight.w400 : FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(body, style: theme.textTheme.bodyMedium),
+                  Text(body, style: AppText.captionLight(dark: dark)),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
-                          color: diffColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(999),
+                          color: diffColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
                         ),
                         child: Text(
                           '$diffPrefix$diff',
-                          style: theme.textTheme.labelSmall?.copyWith(color: diffColor),
+                          style: AppText.badge().copyWith(color: diffColor),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         _fmtDate(alert.createdAt),
-                        style: theme.textTheme.bodySmall,
+                        style: AppText.microLabel(dark: dark),
                       ),
                     ],
                   ),
@@ -148,21 +154,24 @@ class _AlertTile extends StatelessWidget {
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
+                _ActionIcon(
                   tooltip: 'Abrir no Redmine',
-                  icon: const Icon(Icons.open_in_new, size: 20),
-                  onPressed: () => _openLink(context, alert.directUrl),
+                  icon: Icons.open_in_new,
+                  onTap: () => _openLink(context, alert.directUrl),
                 ),
-                if (!alert.isRead)
-                  IconButton(
+                if (!alert.isRead) ...[
+                  const SizedBox(height: 4),
+                  _ActionIcon(
                     tooltip: 'Marcar como lida',
-                    icon: const Icon(Icons.mark_email_read_outlined, size: 20),
-                    onPressed: () => state.markAlertRead(alert.id!),
+                    icon: Icons.mark_email_read_outlined,
+                    onTap: () => state.markAlertRead(alert.id!),
                   ),
-                IconButton(
+                ],
+                const SizedBox(height: 4),
+                _ActionIcon(
                   tooltip: 'Excluir',
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  onPressed: () => state.deleteAlert(alert.id!),
+                  icon: Icons.delete_outline,
+                  onTap: () => state.deleteAlert(alert.id!),
                 ),
               ],
             ),
@@ -173,19 +182,59 @@ class _AlertTile extends StatelessWidget {
   }
 
   Future<void> _openLink(BuildContext context, String link) async {
-    final uri = Uri.tryParse(link);
+    final baseUrl = context.read<AppState>().settings.baseUrl;
+    final fullLink = _buildFullUrl(baseUrl, link);
+    final uri = Uri.tryParse(fullLink);
     if (uri == null || !uri.hasScheme) return;
-
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nao foi possivel abrir o link.')),
+        const SnackBar(content: Text('Não foi possível abrir o link.')),
       );
     }
+  }
+
+  String _buildFullUrl(String baseUrl, String link) {
+    if (link.startsWith('http://') || link.startsWith('https://')) return link;
+    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    final path = link.startsWith('/') ? link : '/$link';
+    return '$base$path';
   }
 
   String _fmtDate(DateTime date) {
     final local = date.toLocal();
     return '${local.year.toString().padLeft(4, '0')}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _ActionIcon extends StatelessWidget {
+  const _ActionIcon({
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.micro),
+        hoverColor: AppColors.hoverBg,
+        child: Padding(
+          padding: const EdgeInsets.all(4.0),
+          child: Icon(
+            icon,
+            size: 18,
+            color: AppColors.warmGray500,
+          ),
+        ),
+      ),
+    );
   }
 }

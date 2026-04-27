@@ -11,7 +11,7 @@ class DatabaseService {
   DatabaseService._();
 
   static final DatabaseService instance = DatabaseService._();
-  static const _dbVersion = 8;
+  static const _dbVersion = 10;
 
   Database? _db;
 
@@ -43,14 +43,6 @@ class DatabaseService {
           'value': '',
         });
         await database.insert('settings', {
-          'key': 'default_poll_seconds',
-          'value': '180',
-        });
-        await database.insert('settings', {
-          'key': 'alert_cooldown_seconds',
-          'value': '600',
-        });
-        await database.insert('settings', {
           'key': 'notification_title_template',
           'value': defaultNotificationTitleTemplate,
         });
@@ -66,8 +58,7 @@ class DatabaseService {
         await database.insert('settings', {'key': 'notification_increase_body_template', 'value': ''});
         await database.insert('settings', {'key': 'notification_decrease_title_template', 'value': ''});
         await database.insert('settings', {'key': 'notification_decrease_body_template', 'value': ''});
-        await database.insert('settings', {'key': 'monitor_start_hour', 'value': ''});
-        await database.insert('settings', {'key': 'monitor_end_hour', 'value': ''});
+        await database.insert('settings', {'key': 'account_name', 'value': ''});
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -92,14 +83,8 @@ class DatabaseService {
           );
         }
         if (oldVersion < 4) {
-          await database.insert(
-            'settings',
-            {
-              'key': 'alert_cooldown_seconds',
-              'value': '600',
-            },
-            conflictAlgorithm: ConflictAlgorithm.ignore,
-          );
+          // alert_cooldown_seconds removed from global settings (now per-query).
+          // Keep migration stub to avoid version gap.
         }
         if (oldVersion < 5) {
           await database.insert(
@@ -143,14 +128,74 @@ class DatabaseService {
           await database.execute(
             'ALTER TABLE monitor_logs ADD COLUMN response_body TEXT',
           );
-          for (final key in ['monitor_start_hour', 'monitor_end_hour']) {
-            await database.insert(
-              'settings',
-              {'key': key, 'value': ''},
-              conflictAlgorithm: ConflictAlgorithm.ignore,
-            );
-          }
+          // monitor_start_hour / monitor_end_hour removed from global settings.
         }
+        if (oldVersion < 9) {
+          await database.insert(
+            'settings',
+            {'key': 'account_name', 'value': ''},
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+        if (oldVersion < 10) {
+          await database.execute(
+            "ALTER TABLE queries ADD COLUMN schedule_weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5'",
+          );
+          await database.execute(
+            'ALTER TABLE queries ADD COLUMN schedule_start_hour INTEGER NOT NULL DEFAULT 8',
+          );
+          await database.execute(
+            'ALTER TABLE queries ADD COLUMN schedule_end_hour INTEGER NOT NULL DEFAULT 18',
+          );
+        }
+      },
+      onOpen: (database) async {
+        // Defensive repairs — run on every open, idempotent via PRAGMA check.
+        // Fixes databases that were created at an intermediate version
+        // and never went through the full onUpgrade chain.
+        await _ensureSettingsRow(database, 'account_name', '');
+        await _ensureColumn(
+          database,
+          table: 'queries',
+          column: 'notification_title_template',
+          definition: 'TEXT',
+        );
+        await _ensureColumn(
+          database,
+          table: 'queries',
+          column: 'notification_body_template',
+          definition: 'TEXT',
+        );
+        await _ensureColumn(
+          database,
+          table: 'queries',
+          column: 'alert_on',
+          definition: "TEXT NOT NULL DEFAULT 'any'",
+        );
+        await _ensureColumn(
+          database,
+          table: 'queries',
+          column: 'schedule_weekdays',
+          definition: "TEXT NOT NULL DEFAULT '1,2,3,4,5'",
+        );
+        await _ensureColumn(
+          database,
+          table: 'queries',
+          column: 'schedule_start_hour',
+          definition: 'INTEGER NOT NULL DEFAULT 8',
+        );
+        await _ensureColumn(
+          database,
+          table: 'queries',
+          column: 'schedule_end_hour',
+          definition: 'INTEGER NOT NULL DEFAULT 18',
+        );
+        await _ensureColumn(
+          database,
+          table: 'monitor_logs',
+          column: 'response_body',
+          definition: 'TEXT',
+        );
       },
     );
   }
@@ -174,7 +219,12 @@ class DatabaseService {
         enabled INTEGER NOT NULL DEFAULT 1,
         alert_on TEXT NOT NULL DEFAULT 'any',
         last_count INTEGER,
-        last_checked_at TEXT
+        last_checked_at TEXT,
+        notification_title_template TEXT,
+        notification_body_template TEXT,
+        schedule_weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5',
+        schedule_start_hour INTEGER NOT NULL DEFAULT 8,
+        schedule_end_hour INTEGER NOT NULL DEFAULT 18
       )
     ''');
 
@@ -203,6 +253,35 @@ class DatabaseService {
     ''');
   }
 
+  /// Adds [column] to [table] only if it does not already exist.
+  /// SQLite does not support `ALTER TABLE … ADD COLUMN IF NOT EXISTS`,
+  /// so we inspect PRAGMA table_info first.
+  Future<void> _ensureColumn(
+    Database database, {
+    required String table,
+    required String column,
+    required String definition,
+  }) async {
+    final rows = await database.rawQuery('PRAGMA table_info($table)');
+    final exists = rows.any((r) => r['name'] == column);
+    if (!exists) {
+      await database.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+    }
+  }
+
+  /// Inserts a settings row with [defaultValue] if the key does not exist.
+  Future<void> _ensureSettingsRow(
+    Database database,
+    String key,
+    String defaultValue,
+  ) async {
+    await database.insert(
+      'settings',
+      {'key': key, 'value': defaultValue},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
   Future<AppSettings> loadSettings() async {
     final database = await db;
     final rows = await database.query('settings');
@@ -214,8 +293,6 @@ class DatabaseService {
     return AppSettings(
       baseUrl: map['base_url'] ?? '',
       apiKey: map['api_key'] ?? '',
-      defaultPollSeconds: int.tryParse(map['default_poll_seconds'] ?? '') ?? 180,
-      alertCooldownSeconds: int.tryParse(map['alert_cooldown_seconds'] ?? '') ?? 600,
       notificationTitleTemplate:
           map['notification_title_template'] ?? defaultNotificationTitleTemplate,
       notificationBodyTemplate:
@@ -237,12 +314,9 @@ class DatabaseService {
           map['notification_decrease_body_template']?.isEmpty == true
               ? null
               : map['notification_decrease_body_template'],
-      monitorStartHour: map['monitor_start_hour']?.isEmpty == true
+      accountName: map['account_name']?.isEmpty == true
           ? null
-          : int.tryParse(map['monitor_start_hour'] ?? ''),
-      monitorEndHour: map['monitor_end_hour']?.isEmpty == true
-          ? null
-          : int.tryParse(map['monitor_end_hour'] ?? ''),
+          : map['account_name'],
     );
   }
 
@@ -257,19 +331,6 @@ class DatabaseService {
       await txn.insert(
         'settings',
         {'key': 'api_key', 'value': settings.apiKey},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      await txn.insert(
-        'settings',
-        {'key': 'default_poll_seconds', 'value': '${settings.defaultPollSeconds}'},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      await txn.insert(
-        'settings',
-        {
-          'key': 'alert_cooldown_seconds',
-          'value': '${settings.alertCooldownSeconds}',
-        },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       await txn.insert(
@@ -331,16 +392,8 @@ class DatabaseService {
       await txn.insert(
         'settings',
         {
-          'key': 'monitor_start_hour',
-          'value': settings.monitorStartHour?.toString() ?? '',
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      await txn.insert(
-        'settings',
-        {
-          'key': 'monitor_end_hour',
-          'value': settings.monitorEndHour?.toString() ?? '',
+          'key': 'account_name',
+          'value': settings.accountName ?? '',
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );

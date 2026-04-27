@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/monitor_log.dart';
 import '../../state/app_state.dart';
+import '../../services/theme_service.dart';
 
 class LogsCard extends StatefulWidget {
   const LogsCard({super.key});
@@ -27,6 +28,8 @@ class _LogsCardState extends State<LogsCard> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final search = _searchController.text.trim().toLowerCase();
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
     final logs = state.monitorLogs.where((log) {
       if (_levelFilter != 'all' && log.level != _levelFilter) {
         return false;
@@ -38,9 +41,8 @@ class _LogsCardState extends State<LogsCard> {
       return full.contains(search);
     }).toList();
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    return Container(
+      decoration: surfaceCard(dark: dark),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -50,12 +52,15 @@ class _LogsCardState extends State<LogsCard> {
               children: [
                 Expanded(
                   child: Text(
-                    'Logs de monitoracao',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    'Logs de monitoração',
+                    style: AppText.cardTitle(dark: dark),
                   ),
                 ),
                 TextButton(
                   onPressed: state.monitorLogs.isEmpty ? null : state.clearMonitorLogs,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.notionBlue,
+                  ),
                   child: const Text('Limpar'),
                 ),
               ],
@@ -74,17 +79,17 @@ class _LogsCardState extends State<LogsCard> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _filterChip('all', 'Todos'),
-                _filterChip('info', 'Info'),
-                _filterChip('error', 'Erro'),
-                _filterChip('warn', 'Aviso'),
-                _filterChip('alert', 'Alerta'),
-                _filterChip('success', 'Sucesso'),
+                _filterChip('all', 'Todos', dark),
+                _filterChip('info', 'Info', dark),
+                _filterChip('error', 'Erro', dark),
+                _filterChip('warn', 'Aviso', dark),
+                _filterChip('alert', 'Alerta', dark),
+                _filterChip('success', 'Sucesso', dark),
               ],
             ),
             const SizedBox(height: 10),
             if (logs.isEmpty)
-              const Text('Sem execucoes registradas ainda.')
+              Text('Sem execuções registradas ainda.', style: AppText.captionLight(dark: dark))
             else
               ...logs.map((log) => _LogTile(log: log)),
           ],
@@ -93,12 +98,33 @@ class _LogsCardState extends State<LogsCard> {
     );
   }
 
-  Widget _filterChip(String value, String label) {
+  Widget _filterChip(String value, String label, bool dark) {
     final selected = _levelFilter == value;
-    return ChoiceChip(
-      selected: selected,
-      label: Text(label),
-      onSelected: (_) => setState(() => _levelFilter = value),
+    final bg = selected
+        ? AppColors.notionBlue
+        : (dark ? AppColors.darkCard : AppColors.warmWhite);
+    final textCol = selected ? AppColors.pureWhite : AppColors.warmGray500;
+    final borderCol =
+        selected ? AppColors.notionBlue : AppColors.whisperBorder;
+
+    return GestureDetector(
+      onTap: () => setState(() => _levelFilter = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: borderCol),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: textCol,
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -110,29 +136,59 @@ class _LogTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _levelColor(context, log.level);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final color = _levelColor(log.level);
     final queryPrefix = log.queryName == null ? '' : '[${log.queryName}] ';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Sp.s8),
+      child: ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.standard),
+      child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.s12, vertical: Sp.s8),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
+        color: dark ? const Color(0xFF2A2825) : AppColors.warmWhite,
+        border: Border(
+          top: BorderSide(
+              color: dark ? AppColors.darkBorder : AppColors.whisperBorder),
+          right: BorderSide(
+              color: dark ? AppColors.darkBorder : AppColors.whisperBorder),
+          bottom: BorderSide(
+              color: dark ? AppColors.darkBorder : AppColors.whisperBorder),
+          left: BorderSide(color: color, width: 3),
+        ),
       ),
       child: Row(
         children: [
-          Icon(Icons.circle, color: color, size: 10),
+          Icon(Icons.circle, color: color, size: 8),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$queryPrefix${log.message}'),
-                const SizedBox(height: 2),
-                Text(
-                  '${log.level.toUpperCase()} • ${_fmtDate(log.createdAt)}',
-                  style: Theme.of(context).textTheme.bodySmall,
+                Text('$queryPrefix${log.message}',
+                    style: AppText.body(dark: dark)),
+                const SizedBox(height: Sp.s4),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius:
+                            BorderRadius.circular(AppRadius.pill),
+                      ),
+                      child: Text(
+                        log.level.toUpperCase(),
+                        style: AppText.badge().copyWith(color: color),
+                      ),
+                    ),
+                    const SizedBox(width: Sp.s8),
+                    Text(
+                      _fmtDate(log.createdAt),
+                      style: AppText.microLabel(dark: dark),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -140,15 +196,19 @@ class _LogTile extends StatelessWidget {
           if (log.responseBody != null)
             IconButton(
               tooltip: 'Ver resposta da API',
-              icon: const Icon(Icons.data_object_outlined, size: 18),
-              onPressed: () => _showResponseModal(context, log.responseBody!),
+              icon: const Icon(Icons.data_object_outlined,
+                  size: 18, color: AppColors.warmGray500),
+              onPressed: () =>
+                  _showResponseModal(context, log.responseBody!, dark),
             ),
         ],
       ),
-    );
+    ), // Container
+    ), // ClipRRect
+    ); // Padding
   }
 
-  void _showResponseModal(BuildContext context, String rawBody) {
+  void _showResponseModal(BuildContext context, String rawBody, bool dark) {
     String formatted;
     try {
       final decoded = jsonDecode(rawBody);
@@ -160,7 +220,10 @@ class _LogTile extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
-        child: ConstrainedBox(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          decoration: surfaceCard(dark: dark),
           constraints: const BoxConstraints(maxWidth: 680, maxHeight: 520),
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -174,7 +237,7 @@ class _LogTile extends StatelessWidget {
                     Expanded(
                       child: Text(
                         'Resposta da API',
-                        style: Theme.of(ctx).textTheme.titleMedium,
+                        style: AppText.bodyMedium(dark: dark),
                       ),
                     ),
                     IconButton(
@@ -183,15 +246,21 @@ class _LogTile extends StatelessWidget {
                     ),
                   ],
                 ),
-                const Divider(),
+                Divider(
+                    color: dark
+                        ? AppColors.darkBorder
+                        : AppColors.whisperBorder),
                 Expanded(
                   child: SingleChildScrollView(
                     child: SelectableText(
                       formatted,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 12,
                         height: 1.5,
+                        color: dark
+                            ? AppColors.warmGray300
+                            : AppColors.warmGray500,
                       ),
                     ),
                   ),
@@ -204,21 +273,20 @@ class _LogTile extends StatelessWidget {
     );
   }
 
-  Color _levelColor(BuildContext context, String level) {
-    final scheme = Theme.of(context).colorScheme;
+  Color _levelColor(String level) {
     switch (level) {
       case 'error':
-        return scheme.error;
+        return AppColors.orange;
       case 'warn':
-        return Colors.orange;
+        return const Color(0xFFDD9900);
       case 'alert':
-        return Colors.deepPurple;
+        return const Color(0xFF7B5EA7);
       case 'success':
-        return Colors.green;
+        return AppColors.green;
       case 'info':
-        return scheme.primary;
+        return AppColors.notionBlue;
       default:
-        return scheme.outline;
+        return AppColors.warmGray500;
     }
   }
 
