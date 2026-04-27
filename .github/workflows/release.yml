@@ -59,7 +59,7 @@ jobs:
 
   # ── macOS ────────────────────────────────────────────────────────────────────
   build-macos:
-    name: Build macOS app (unsigned)
+    name: Build macOS app + DMG installer
     runs-on: macos-latest
 
     steps:
@@ -83,18 +83,27 @@ jobs:
           TAG="${{ github.ref_name }}"
           echo "VERSION=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Zip .app bundle
-        run: |
-          cd build/macos/Build/Products/Release
-          zip -r --symlinks \
-            "${{ github.workspace }}/RedmineMonitor-${{ steps.version.outputs.VERSION }}-macos.zip" \
-            "Redmine Monitor.app"
+      - name: Install create-dmg
+        run: brew install create-dmg
 
-      - name: Upload macOS zip
+      - name: Create DMG installer
+        run: |
+          create-dmg \
+            --volname "Redmine Monitor" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "Redmine Monitor.app" 200 190 \
+            --hide-extension "Redmine Monitor.app" \
+            --app-drop-link 600 185 \
+            "${{ github.workspace }}/RedmineMonitor-${{ steps.version.outputs.VERSION }}-macos.dmg" \
+            "build/macos/Build/Products/Release/Redmine Monitor.app"
+
+      - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          name: macos-zip
-          path: RedmineMonitor-${{ steps.version.outputs.VERSION }}-macos.zip
+          name: macos-dmg
+          path: RedmineMonitor-${{ steps.version.outputs.VERSION }}-macos.dmg
           retention-days: 1
 
   # ── GitHub Release ───────────────────────────────────────────────────────────
@@ -124,4 +133,4 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/windows-installer/RedmineMonitor-${{ steps.version.outputs.VERSION }}-windows-setup.exe
-            artifacts/macos-zip/RedmineMonitor-${{ steps.version.outputs.VERSION }}-macos.zip
+            artifacts/macos-dmg/RedmineMonitor-${{ steps.version.outputs.VERSION }}-macos.dmg
