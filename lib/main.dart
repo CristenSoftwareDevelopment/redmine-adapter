@@ -59,7 +59,7 @@ Future<void> _initWindowAndTray() async {
     ],
   );
   await trayManager.setContextMenu(menu);
-  await trayManager.setToolTip('Redmine Monitor — monitorando em segundo plano');
+  await trayManager.setToolTip('Redmine Monitor');
 }
 
 Future<void> _initDatabaseFactory() async {
@@ -74,8 +74,62 @@ Future<void> _initDatabaseFactory() async {
   }
 }
 
-class RedmineMonitorApp extends StatelessWidget {
+class RedmineMonitorApp extends StatefulWidget {
   const RedmineMonitorApp({super.key});
+
+  @override
+  State<RedmineMonitorApp> createState() => _RedmineMonitorAppState();
+}
+
+class _RedmineMonitorAppState extends State<RedmineMonitorApp> with WindowListener {
+  @override
+  void initState() {
+    super.initState();
+    if (_isDesktop) {
+      windowManager.addListener(this);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_isDesktop) {
+      windowManager.removeListener(this);
+    }
+    super.dispose();
+  }
+
+  @override
+  void onWindowMinimize() {
+    windowManager.hide();
+  }
+
+  @override
+  Future<void> onWindowClose() async {
+    final shouldClose = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Fechar Redmine Monitor'),
+        content: const Text('O que você deseja fazer?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(false);
+              windowManager.hide();
+            },
+            child: const Text('Minimizar para o tray'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Fechar completamente'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldClose == true) {
+      windowManager.destroy();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
