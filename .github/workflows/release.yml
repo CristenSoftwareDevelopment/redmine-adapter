@@ -49,6 +49,7 @@ jobs:
           if (-not (Test-Path $makensis)) {
             $makensis = "C:\Program Files\NSIS\makensis.exe"
           }
+          cd ${{ github.workspace }}
           & "$makensis" `
             /DAPP_VERSION="$ver" `
             /DBUILD_DIR="$buildDir" `
