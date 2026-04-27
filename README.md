@@ -84,6 +84,16 @@ flutter build windows --release
 
 ```bash
 flutter build macos --release
+create-dmg \
+  --volname "Redmine Monitor" \
+  --window-pos 200 120 \
+  --window-size 800 400 \
+  --icon-size 100 \
+  --icon "Redmine Monitor.app" 200 190 \
+  --hide-extension "Redmine Monitor.app" \
+  --app-drop-link 600 185 \
+  "Redmine Monitor.dmg" \
+  "build/macos/Build/Products/Release/Redmine Monitor.app"
 ```
 
 ### Web
