@@ -26,15 +26,20 @@ class DatabaseService {
   }
 
   Future<Database> _open() async {
-    final path = kIsWeb
-        ? 'redmine_monitor.db'
-        : join(await getDatabasesPath(), 'redmine_monitor.db');
-
-    if (!kIsWeb) {
-      final dir = Directory(dirname(path));
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
+    String path;
+    
+    if (kIsWeb) {
+      path = 'redmine_monitor.db';
+    } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      // Use user-accessible directory instead of app directory
+      final home = Platform.environment['APPDATA'] ??
+                   Platform.environment['HOME'] ??
+                   '.';
+      final dbDir = join(home, 'RedmineMonitor');
+      await Directory(dbDir).create(recursive: true);
+      path = join(dbDir, 'redmine_monitor.db');
+    } else {
+      path = join(await getDatabasesPath(), 'redmine_monitor.db');
     }
 
     return openDatabase(
