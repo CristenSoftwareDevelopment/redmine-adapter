@@ -196,6 +196,12 @@ class DatabaseService {
           column: 'response_body',
           definition: 'TEXT',
         );
+        await _ensureColumn(
+          database,
+          table: 'alerts',
+          column: 'is_read',
+          definition: 'INTEGER NOT NULL DEFAULT 0',
+        );
       },
     );
   }
@@ -236,7 +242,8 @@ class DatabaseService {
         previous_count INTEGER NOT NULL,
         current_count INTEGER NOT NULL,
         direct_url TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0
       )
     ''');
   }
