@@ -48,6 +48,7 @@ class MonitorService {
 
   Future<void> start() async {
     await databaseService.pruneMonitorLogs();
+    await databaseService.pruneAlerts();
 
     final settings = await databaseService.loadSettings();
     final queries = await databaseService.listQueries();
@@ -60,6 +61,7 @@ class MonitorService {
 
     _pruneTimer = Timer.periodic(_pruneInterval, (_) async {
       await databaseService.pruneMonitorLogs();
+      await databaseService.pruneAlerts();
       _onQueryUpdate();
     });
 

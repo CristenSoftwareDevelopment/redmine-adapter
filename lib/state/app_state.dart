@@ -258,10 +258,12 @@ class AppState extends ChangeNotifier {
 
   String exportBackupJson() {
     final payload = {
-      'version': 1,
+      'version': 2,
       'settings': {
         'baseUrl': settings.baseUrl,
         'apiKey': settings.apiKey,
+        'accountName': settings.accountName,
+        'themeMode': settings.themeMode,
         'notificationTitleTemplate': settings.notificationTitleTemplate,
         'notificationBodyTemplate': settings.notificationBodyTemplate,
         'notificationIncreaseTitleTemplate': settings.notificationIncreaseTitleTemplate,
@@ -280,6 +282,9 @@ class AppState extends ChangeNotifier {
                 'alertOn': q.alertOn,
                 'notificationTitleTemplate': q.notificationTitleTemplate,
                 'notificationBodyTemplate': q.notificationBodyTemplate,
+                'scheduleWeekdays': q.scheduleWeekdays,
+                'scheduleStartHour': q.scheduleStartHour,
+                'scheduleEndHour': q.scheduleEndHour,
               })
           .toList(),
     };
@@ -296,6 +301,11 @@ class AppState extends ChangeNotifier {
       throw const FormatException('Backup inválido: JSON raiz precisa ser objeto.');
     }
 
+    final version = parsed['version'] as int? ?? 1;
+    if (version < 1 || version > 2) {
+      throw FormatException('Versão de backup não suportada: $version');
+    }
+
     final settingsMap = parsed['settings'];
     final queriesList = parsed['queries'];
     if (settingsMap is! Map<String, dynamic> || queriesList is! List) {
@@ -305,6 +315,8 @@ class AppState extends ChangeNotifier {
     final importedSettings = AppSettings(
       baseUrl: (settingsMap['baseUrl'] ?? '').toString(),
       apiKey: (settingsMap['apiKey'] ?? '').toString(),
+      accountName: settingsMap['accountName'] as String?,
+      themeMode: (settingsMap['themeMode'] as String?) ?? defaultThemeMode,
       notificationTitleTemplate:
           (settingsMap['notificationTitleTemplate'] ?? defaultNotificationTitleTemplate)
               .toString(),
@@ -322,11 +334,15 @@ class AppState extends ChangeNotifier {
     );
 
     await _databaseService.saveSettings(importedSettings);
+    await _databaseService.clearAlerts();
     await _databaseService.clearQueries();
     for (final entry in queriesList) {
       if (entry is! Map) {
         continue;
       }
+      final scheduleWeekdays = entry['scheduleWeekdays'] is List
+          ? List<int>.from((entry['scheduleWeekdays'] as List).map((e) => e as int))
+          : defaultScheduleWeekdays;
       final query = MonitoredQuery(
         name: (entry['name'] ?? 'Consulta').toString(),
         endpoint: (entry['endpoint'] ?? '').toString(),
@@ -337,6 +353,9 @@ class AppState extends ChangeNotifier {
         alertOn: (entry['alertOn'] ?? alertOnAny).toString(),
         notificationTitleTemplate: entry['notificationTitleTemplate'] as String?,
         notificationBodyTemplate: entry['notificationBodyTemplate'] as String?,
+        scheduleWeekdays: scheduleWeekdays,
+        scheduleStartHour: entry['scheduleStartHour'] as int? ?? defaultScheduleStartHour,
+        scheduleEndHour: entry['scheduleEndHour'] as int? ?? defaultScheduleEndHour,
       );
       await _databaseService.insertQuery(query);
     }

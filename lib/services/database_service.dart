@@ -569,4 +569,28 @@ class DatabaseService {
       )
     ''', [maxCount]);
   }
+
+  /// Removes alerts older than [maxAge] and trims to the most recent [maxCount].
+  Future<void> pruneAlerts({
+    Duration maxAge = const Duration(days: 30),
+    int maxCount = 200,
+  }) async {
+    final database = await db;
+    final cutoff = DateTime.now().subtract(maxAge).toIso8601String();
+
+    await database.delete(
+      'alerts',
+      where: 'created_at < ?',
+      whereArgs: [cutoff],
+    );
+
+    await database.rawDelete('''
+      DELETE FROM alerts
+      WHERE id NOT IN (
+        SELECT id FROM alerts
+        ORDER BY created_at DESC
+        LIMIT ?
+      )
+    ''', [maxCount]);
+  }
 }
