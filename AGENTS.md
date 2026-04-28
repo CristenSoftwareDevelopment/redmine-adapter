@@ -2,13 +2,13 @@
 
 ## What this repo is
 
-Flutter app (`redmine_monitor_flutter`) that monitors Redmine saved queries and fires in-app alerts when counts change. Also contains a tiny Node.js CORS proxy (`src/web_proxy.js`) required for web builds.
+Flutter app (`redmine_monitor_flutter`) monitors Redmine saved queries, fires in-app alerts on count change. Has tiny Node.js CORS proxy (`src/web_proxy.js`) for web builds.
 
 ---
 
 ## Setup — first time
 
-This repo was **not** bootstrapped with `flutter create`, so platform scaffold files were generated separately. They exist already. Do not run `flutter create .` again — it would overwrite platform configs.
+Repo **not** bootstrapped with `flutter create`, platform scaffold files generated separately. Exist. Do not run `flutter create .` again — overwrites platform configs.
 
 ```bash
 flutter pub get
@@ -27,7 +27,7 @@ flutter pub get
 | Lint | `flutter analyze` |
 | Regenerate launcher icons | `dart run flutter_launcher_icons` |
 
-**Web + Redmine**: always start the proxy in a separate terminal before running in Chrome. Without it, all HTTP calls to Redmine are blocked by CORS.
+**Web + Redmine**: start proxy in separate terminal before Chrome. Without it, all HTTP calls to Redmine blocked by CORS.
 
 **Custom proxy URL**:
 ```bash
@@ -66,7 +66,7 @@ src/web_proxy.js          — Node CORS proxy; single endpoint POST /redmine-pro
 - **Windows / Linux** → `sqfliteFfiInit()` + `databaseFactoryFfi`
 - **Android / iOS / macOS** → default sqflite (no override needed)
 
-Do not remove or reorder this initialization — the app silently fails to open the DB otherwise.
+Do not remove or reorder init — app silently fails to open DB.
 
 ---
 
@@ -78,13 +78,13 @@ SQLite on web uses browser `IndexedDB`, scoped by `origin (host:port)`. Changing
 
 ## Proxy contract
 
-The proxy accepts only `POST /redmine-proxy/fetch` with JSON body `{ url, apiKey }`. It forwards the request to Redmine with the `X-Redmine-API-Key` header. Any other path returns 404. Port defaults to `4311`; override with env `REDMINE_PROXY_PORT`.
+Proxy accepts only `POST /redmine-proxy/fetch` with JSON body `{ url, apiKey }`. Forwards request to Redmine with `X-Redmine-API-Key` header. Any other path returns 404. Port defaults to `4311`; override with env `REDMINE_PROXY_PORT`.
 
 ---
 
 ## Notification templates
 
-Placeholders for title/message: `{queryName}`, `{previousCount}`, `{currentCount}`, `{diff}`, `{time}`, `{url}`. Rendering logic is in `NotificationTemplateService` — the only unit-tested class.
+Placeholders for title/message: `{queryName}`, `{previousCount}`, `{currentCount}`, `{diff}`, `{time}`, `{url}`. Rendering logic in `NotificationTemplateService` — only unit-tested class.
 
 ---
 
@@ -102,4 +102,4 @@ One test file: `test/widget_test.dart` — tests `NotificationTemplateService.re
 
 ## Desktop extras
 
-On Windows/macOS/Linux, the app initializes `window_manager` (minimum size 600×500) and `tray_manager` (system tray icon + context menu). These are no-ops on web/mobile — guarded by `_isDesktop` check in `main.dart`.
+On Windows/macOS/Linux, app initializes `window_manager` (min size 600×500) and `tray_manager` (system tray icon + context menu). No-ops on web/mobile — guarded by `_isDesktop` check in `main.dart`.
