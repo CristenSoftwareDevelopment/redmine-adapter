@@ -3,6 +3,29 @@ import 'package:provider/provider.dart';
 
 import '../../models/app_settings.dart';
 import '../../state/app_state.dart';
+import '../../services/theme_service.dart';
+
+// ─── Tab definitions ──────────────────────────────────────────────────────────
+
+enum _SettingsTab { connection, notifications, appearance, backup }
+
+extension _SettingsTabX on _SettingsTab {
+  String get label => switch (this) {
+        _SettingsTab.connection    => 'Conexão',
+        _SettingsTab.notifications => 'Notificações',
+        _SettingsTab.appearance    => 'Aparencia',
+        _SettingsTab.backup        => 'Backup',
+      };
+
+  IconData get icon => switch (this) {
+        _SettingsTab.connection    => Icons.cloud_outlined,
+        _SettingsTab.notifications => Icons.notifications_outlined,
+        _SettingsTab.appearance    => Icons.palette_outlined,
+        _SettingsTab.backup        => Icons.backup_outlined,
+      };
+}
+
+// ─── SettingsCard ─────────────────────────────────────────────────────────────
 
 class SettingsCard extends StatefulWidget {
   const SettingsCard({super.key});
@@ -15,8 +38,6 @@ class _SettingsCardState extends State<SettingsCard> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _baseUrlController;
   late final TextEditingController _apiKeyController;
-  late final TextEditingController _defaultPollController;
-  late final TextEditingController _alertCooldownController;
   late final TextEditingController _notificationTitleTemplateController;
   late final TextEditingController _notificationBodyTemplateController;
   late final TextEditingController _increaseTitleController;
@@ -24,24 +45,24 @@ class _SettingsCardState extends State<SettingsCard> {
   late final TextEditingController _decreaseTitleController;
   late final TextEditingController _decreaseBodyController;
   String _themeMode = defaultThemeMode;
-  bool _scheduleEnabled = false;
-  int _scheduleStart = 8;
-  int _scheduleEnd = 18;
   bool _seeded = false;
+  _SettingsTab _activeTab = _SettingsTab.connection;
+
+  // Public mutator — used by child StatelessWidget to avoid
+  // calling the protected setState() from outside this State.
+  void setThemeMode(String value) => setState(() => _themeMode = value);
 
   @override
   void initState() {
     super.initState();
-    _baseUrlController = TextEditingController();
-    _apiKeyController = TextEditingController();
-    _defaultPollController = TextEditingController();
-    _alertCooldownController = TextEditingController();
-    _notificationTitleTemplateController = TextEditingController();
-    _notificationBodyTemplateController = TextEditingController();
-    _increaseTitleController = TextEditingController();
-    _increaseBodyController = TextEditingController();
-    _decreaseTitleController = TextEditingController();
-    _decreaseBodyController = TextEditingController();
+    _baseUrlController                    = TextEditingController();
+    _apiKeyController                     = TextEditingController();
+    _notificationTitleTemplateController  = TextEditingController();
+    _notificationBodyTemplateController   = TextEditingController();
+    _increaseTitleController              = TextEditingController();
+    _increaseBodyController               = TextEditingController();
+    _decreaseTitleController              = TextEditingController();
+    _decreaseBodyController               = TextEditingController();
   }
 
   @override
@@ -49,20 +70,15 @@ class _SettingsCardState extends State<SettingsCard> {
     super.didChangeDependencies();
     if (_seeded) return;
     final settings = context.read<AppState>().settings;
-    _baseUrlController.text = settings.baseUrl;
-    _apiKeyController.text = settings.apiKey;
-    _defaultPollController.text = '${settings.defaultPollSeconds}';
-    _alertCooldownController.text = '${settings.alertCooldownSeconds}';
+    _baseUrlController.text                   = settings.baseUrl;
+    _apiKeyController.text                    = settings.apiKey;
     _notificationTitleTemplateController.text = settings.notificationTitleTemplate;
-    _notificationBodyTemplateController.text = settings.notificationBodyTemplate;
-    _increaseTitleController.text = settings.notificationIncreaseTitleTemplate ?? '';
-    _increaseBodyController.text = settings.notificationIncreaseBodyTemplate ?? '';
-    _decreaseTitleController.text = settings.notificationDecreaseTitleTemplate ?? '';
-    _decreaseBodyController.text = settings.notificationDecreaseBodyTemplate ?? '';
+    _notificationBodyTemplateController.text  = settings.notificationBodyTemplate;
+    _increaseTitleController.text             = settings.notificationIncreaseTitleTemplate ?? '';
+    _increaseBodyController.text              = settings.notificationIncreaseBodyTemplate ?? '';
+    _decreaseTitleController.text             = settings.notificationDecreaseTitleTemplate ?? '';
+    _decreaseBodyController.text              = settings.notificationDecreaseBodyTemplate ?? '';
     _themeMode = settings.themeMode;
-    _scheduleEnabled = settings.monitorStartHour != null;
-    _scheduleStart = settings.monitorStartHour ?? 8;
-    _scheduleEnd = settings.monitorEndHour ?? 18;
     _seeded = true;
   }
 
@@ -70,8 +86,6 @@ class _SettingsCardState extends State<SettingsCard> {
   void dispose() {
     _baseUrlController.dispose();
     _apiKeyController.dispose();
-    _defaultPollController.dispose();
-    _alertCooldownController.dispose();
     _notificationTitleTemplateController.dispose();
     _notificationBodyTemplateController.dispose();
     _increaseTitleController.dispose();
@@ -81,377 +95,82 @@ class _SettingsCardState extends State<SettingsCard> {
     super.dispose();
   }
 
+  // ── Save ──────────────────────────────────────────────────────────────────
+
+  Future<void> _save(BuildContext context) async {
+    if (!_formKey.currentState!.validate()) return;
+    final state    = context.read<AppState>();
+    final settings = AppSettings(
+      baseUrl:              _baseUrlController.text.trim(),
+      apiKey:               _apiKeyController.text.trim(),
+      notificationTitleTemplate: _notificationTitleTemplateController.text.trim(),
+      notificationBodyTemplate:  _notificationBodyTemplateController.text.trim(),
+      themeMode: _themeMode,
+      notificationIncreaseTitleTemplate:
+          _increaseTitleController.text.trim().isEmpty ? null : _increaseTitleController.text.trim(),
+      notificationIncreaseBodyTemplate:
+          _increaseBodyController.text.trim().isEmpty ? null : _increaseBodyController.text.trim(),
+      notificationDecreaseTitleTemplate:
+          _decreaseTitleController.text.trim().isEmpty ? null : _decreaseTitleController.text.trim(),
+      notificationDecreaseBodyTemplate:
+          _decreaseBodyController.text.trim().isEmpty ? null : _decreaseBodyController.text.trim(),
+    );
+    await state.saveSettings(settings);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Configuração salva.')),
+    );
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.tune, color: theme.colorScheme.primary),
-                  const SizedBox(width: 8),
-                  Text('Configuracao', style: theme.textTheme.titleLarge),
-                ],
-              ),
-              const SizedBox(height: 20),
+    final dark = Theme.of(context).brightness == Brightness.dark;
 
-              // ── Conexão ──────────────────────────────────────────────────
-              const _SectionHeader(icon: Icons.cloud_outlined, label: 'Conexao com Redmine'),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _baseUrlController,
-                decoration: const InputDecoration(
-                  labelText: 'URL do Redmine',
-                  hintText: 'https://seu-redmine.com',
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Informe a URL do Redmine';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _apiKeyController,
-                decoration: const InputDecoration(labelText: 'API Key'),
-                obscureText: true,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Informe a API key';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _defaultPollController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Intervalo padrao (segundos)',
-                ),
-                validator: (value) {
-                  final parsed = int.tryParse(value ?? '');
-                  if (parsed == null || parsed < 10) return 'Minimo 10 segundos';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _alertCooldownController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Cooldown de alerta (segundos)',
-                ),
-                validator: (value) {
-                  final parsed = int.tryParse(value ?? '');
-                  if (parsed == null || parsed < 0) return 'Use 0 ou maior';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 20),
+    return Container(
+      decoration: surfaceCard(dark: dark),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Tab bar ──────────────────────────────────────────────────
+            _TabBar(
+              active: _activeTab,
+              dark: dark,
+              onSelect: (t) => setState(() => _activeTab = t),
+            ),
+            Container(height: 1, color: dark ? AppColors.darkBorder : AppColors.whisperBorder),
 
-              // ── Horário de monitoração ────────────────────────────────────
-              const _SectionHeader(icon: Icons.schedule_outlined, label: 'Horario de monitoracao'),
-              const SizedBox(height: 4),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _scheduleEnabled,
-                onChanged: (value) => setState(() => _scheduleEnabled = value),
-                title: const Text('Restringir horario de monitoracao'),
-                subtitle: Text(
-                  _scheduleEnabled
-                      ? 'Monitorar apenas das ${_scheduleStart.toString().padLeft(2, '0')}:00 às ${_scheduleEnd.toString().padLeft(2, '0')}:00'
-                      : 'Monitorar sempre (sem restricao de horario)',
-                ),
-              ),
-              if (_scheduleEnabled) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        initialValue: _scheduleStart,
-                        decoration: const InputDecoration(
-                          labelText: 'Hora de inicio',
-                          isDense: true,
-                        ),
-                        items: List.generate(
-                          24,
-                          (h) => DropdownMenuItem(
-                            value: h,
-                            child: Text('${h.toString().padLeft(2, '0')}:00'),
-                          ),
-                        ),
-                        onChanged: (v) => setState(() => _scheduleStart = v ?? 8),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        initialValue: _scheduleEnd,
-                        decoration: const InputDecoration(
-                          labelText: 'Hora de fim',
-                          isDense: true,
-                        ),
-                        items: List.generate(
-                          24,
-                          (h) => DropdownMenuItem(
-                            value: h,
-                            child: Text('${h.toString().padLeft(2, '0')}:00'),
-                          ),
-                        ),
-                        onChanged: (v) => setState(() => _scheduleEnd = v ?? 18),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_scheduleStart == _scheduleEnd)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      'Atenção: inicio e fim iguais desativam toda monitoracao.',
-                      style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
-                    ),
+            // ── Tab body ─────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.all(Sp.s24),
+              child: switch (_activeTab) {
+                _SettingsTab.connection    => _ConnectionTab(this),
+                _SettingsTab.notifications => _NotificationsTab(this),
+                _SettingsTab.appearance    => _AppearanceTab(this),
+                _SettingsTab.backup        => _BackupTab(this),
+              },
+            ),
+
+            // ── Save footer ───────────────────────────────────────────────
+            if (_activeTab != _SettingsTab.backup) ...[
+              Container(height: 1, color: dark ? AppColors.darkBorder : AppColors.whisperBorder),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Sp.s24, vertical: Sp.s16),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.icon(
+                    onPressed: () => _save(context),
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('Salvar configuração'),
                   ),
-                if (_scheduleStart > _scheduleEnd)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      'Janela noturna: monitora das ${_scheduleStart.toString().padLeft(2, '0')}h até ${_scheduleEnd.toString().padLeft(2, '0')}h do dia seguinte.',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-              ],
-              const SizedBox(height: 20),
-
-              // ── Aparência ─────────────────────────────────────────────────
-              const _SectionHeader(icon: Icons.palette_outlined, label: 'Aparencia'),
-              const SizedBox(height: 10),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment<String>(
-                    value: 'light',
-                    label: Text('Claro'),
-                    icon: Icon(Icons.light_mode_outlined),
-                  ),
-                  ButtonSegment<String>(
-                    value: 'dark',
-                    label: Text('Escuro'),
-                    icon: Icon(Icons.dark_mode_outlined),
-                  ),
-                  ButtonSegment<String>(
-                    value: 'system',
-                    label: Text('Sistema'),
-                    icon: Icon(Icons.brightness_auto_outlined),
-                  ),
-                ],
-                selected: {_themeMode},
-                onSelectionChanged: (next) => setState(() => _themeMode = next.first),
-              ),
-              const SizedBox(height: 20),
-
-              // ── Notificações ──────────────────────────────────────────────
-              const _SectionHeader(
-                  icon: Icons.notifications_outlined, label: 'Notificacoes'),
-              const SizedBox(height: 12),
-              Text(
-                'Template generico (usado quando nao ha template especifico)',
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _notificationTitleTemplateController,
-                decoration: const InputDecoration(
-                  labelText: 'Titulo padrao',
-                  hintText: defaultNotificationTitleTemplate,
-                ),
-                validator: (value) =>
-                    value == null || value.trim().isEmpty ? 'Obrigatorio' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _notificationBodyTemplateController,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: 'Corpo padrao',
-                  hintText: defaultNotificationBodyTemplate,
-                ),
-                validator: (value) =>
-                    value == null || value.trim().isEmpty ? 'Obrigatorio' : null,
-              ),
-              const SizedBox(height: 12),
-              _TestNotificationButton(
-                label: 'Testar template generico',
-                getTitleTemplate: () => _notificationTitleTemplateController.text.trim(),
-                getBodyTemplate: () => _notificationBodyTemplateController.text.trim(),
-                getFallbackTitle: null,
-                getFallbackBody: null,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Template para aumento de contagem (opcional)',
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _increaseTitleController,
-                decoration: const InputDecoration(
-                  labelText: 'Titulo — somente aumento',
-                  hintText: 'Deixe vazio para usar o template padrao',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _increaseBodyController,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: 'Corpo — somente aumento',
-                  hintText: 'Deixe vazio para usar o template padrao',
-                ),
-              ),
-              const SizedBox(height: 12),
-              _TestNotificationButton(
-                label: 'Testar template de aumento',
-                getTitleTemplate: () => _increaseTitleController.text.trim(),
-                getBodyTemplate: () => _increaseBodyController.text.trim(),
-                getFallbackTitle: () => _notificationTitleTemplateController.text.trim(),
-                getFallbackBody: () => _notificationBodyTemplateController.text.trim(),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Template para diminuicao de contagem (opcional)',
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _decreaseTitleController,
-                decoration: const InputDecoration(
-                  labelText: 'Titulo — somente diminuicao',
-                  hintText: 'Deixe vazio para usar o template padrao',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _decreaseBodyController,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: 'Corpo — somente diminuicao',
-                  hintText: 'Deixe vazio para usar o template padrao',
-                ),
-              ),
-              const SizedBox(height: 12),
-              _TestNotificationButton(
-                label: 'Testar template de diminuicao',
-                getTitleTemplate: () => _decreaseTitleController.text.trim(),
-                getBodyTemplate: () => _decreaseBodyController.text.trim(),
-                getFallbackTitle: () => _notificationTitleTemplateController.text.trim(),
-                getFallbackBody: () => _notificationBodyTemplateController.text.trim(),
-              ),
-              const SizedBox(height: 10),
-              const Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Chip(label: Text('{queryName}')),
-                  Chip(label: Text('{previousCount}')),
-                  Chip(label: Text('{currentCount}')),
-                  Chip(label: Text('{diff}')),
-                  Chip(label: Text('{newCount}')),
-                  Chip(label: Text('{time}')),
-                  Chip(label: Text('{url}')),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // ── Backup ────────────────────────────────────────────────────
-              const _SectionHeader(icon: Icons.backup_outlined, label: 'Backup'),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: () async {
-                      await context.read<AppState>().copyBackupToClipboard();
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Backup copiado para a area de transferencia.')),
-                      );
-                    },
-                    icon: const Icon(Icons.copy_all_outlined),
-                    label: const Text('Copiar backup'),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: () => _showImportBackupDialog(context),
-                    icon: const Icon(Icons.upload_file_outlined),
-                    label: const Text('Restaurar backup'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // ── Salvar ────────────────────────────────────────────────────
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.icon(
-                  onPressed: () async {
-                    if (!_formKey.currentState!.validate()) return;
-
-                    final state = context.read<AppState>();
-                    final settings = AppSettings(
-                      baseUrl: _baseUrlController.text.trim(),
-                      apiKey: _apiKeyController.text.trim(),
-                      defaultPollSeconds:
-                          int.parse(_defaultPollController.text.trim()),
-                      alertCooldownSeconds:
-                          int.parse(_alertCooldownController.text.trim()),
-                      notificationTitleTemplate:
-                          _notificationTitleTemplateController.text.trim(),
-                      notificationBodyTemplate:
-                          _notificationBodyTemplateController.text.trim(),
-                      themeMode: _themeMode,
-                      notificationIncreaseTitleTemplate:
-                          _increaseTitleController.text.trim().isEmpty
-                              ? null
-                              : _increaseTitleController.text.trim(),
-                      notificationIncreaseBodyTemplate:
-                          _increaseBodyController.text.trim().isEmpty
-                              ? null
-                              : _increaseBodyController.text.trim(),
-                      notificationDecreaseTitleTemplate:
-                          _decreaseTitleController.text.trim().isEmpty
-                              ? null
-                              : _decreaseTitleController.text.trim(),
-                      notificationDecreaseBodyTemplate:
-                          _decreaseBodyController.text.trim().isEmpty
-                              ? null
-                              : _decreaseBodyController.text.trim(),
-                      monitorStartHour: _scheduleEnabled ? _scheduleStart : null,
-                      monitorEndHour: _scheduleEnabled ? _scheduleEnd : null,
-                    );
-
-                    await state.saveSettings(settings);
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Configuracao salva.')),
-                    );
-                  },
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('Salvar configuracao'),
                 ),
               ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -503,6 +222,366 @@ class _SettingsCardState extends State<SettingsCard> {
   }
 }
 
+// ─── Custom tab bar ───────────────────────────────────────────────────────────
+
+class _TabBar extends StatelessWidget {
+  const _TabBar({required this.active, required this.dark, required this.onSelect});
+
+  final _SettingsTab active;
+  final bool dark;
+  final ValueChanged<_SettingsTab> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: Sp.s16, vertical: Sp.s12),
+      child: Row(
+        children: _SettingsTab.values.map((tab) {
+          final isActive = tab == active;
+          return Padding(
+            padding: const EdgeInsets.only(right: Sp.s4),
+            child: _TabChip(
+              label: tab.label,
+              icon: tab.icon,
+              isActive: isActive,
+              dark: dark,
+              onTap: () => onSelect(tab),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _TabChip extends StatefulWidget {
+  const _TabChip({
+    required this.label,
+    required this.icon,
+    required this.isActive,
+    required this.dark,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isActive;
+  final bool dark;
+  final VoidCallback onTap;
+
+  @override
+  State<_TabChip> createState() => _TabChipState();
+}
+
+class _TabChipState extends State<_TabChip> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = widget.isActive
+        ? AppColors.blue
+        : _hovered
+            ? (widget.dark ? AppColors.darkBorder : AppColors.hoverBg)
+            : Colors.transparent;
+    final fg = widget.isActive
+        ? AppColors.white
+        : widget.dark
+            ? AppColors.darkMuted
+            : AppColors.warmDark;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit:  (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(horizontal: Sp.s12, vertical: 6),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(AppRadius.subtle),
+            border: widget.isActive
+                ? null
+                : Border.all(
+                    color: widget.dark ? AppColors.darkBorder : AppColors.borderLight,
+                  ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(widget.icon, size: 14, color: fg),
+              const SizedBox(width: 6),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontFamily: AppText.fontFamily,
+                  fontSize: 13,
+                  fontWeight: widget.isActive ? FontWeight.w600 : FontWeight.w500,
+                  color: fg,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Tab bodies ───────────────────────────────────────────────────────────────
+
+class _ConnectionTab extends StatelessWidget {
+  const _ConnectionTab(this.s);
+  final _SettingsCardState s;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextFormField(
+          controller: s._baseUrlController,
+          decoration: const InputDecoration(
+            labelText: 'URL do Redmine',
+            hintText: 'https://seu-redmine.com',
+          ),
+          validator: (v) =>
+              v == null || v.trim().isEmpty ? 'Informe a URL do Redmine' : null,
+        ),
+        const SizedBox(height: Sp.s12),
+        TextFormField(
+          controller: s._apiKeyController,
+          decoration: const InputDecoration(labelText: 'API Key'),
+          obscureText: true,
+          validator: (v) =>
+              v == null || v.trim().isEmpty ? 'Informe a API key' : null,
+        ),
+      ],
+    );
+  }
+}
+
+class _NotificationsTab extends StatelessWidget {
+  const _NotificationsTab(this.s);
+  final _SettingsCardState s;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Generic template
+        Text('Template genérico (usado quando não ha template específico)',
+            style: AppText.captionLight(dark: dark)),
+        const SizedBox(height: Sp.s12),
+        TextFormField(
+          controller: s._notificationTitleTemplateController,
+          decoration: const InputDecoration(
+            labelText: 'Titulo padrão',
+            hintText: defaultNotificationTitleTemplate,
+          ),
+          validator: (v) =>
+              v == null || v.trim().isEmpty ? 'Obrigatório' : null,
+        ),
+        const SizedBox(height: Sp.s12),
+        TextFormField(
+          controller: s._notificationBodyTemplateController,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Corpo padrão',
+            hintText: defaultNotificationBodyTemplate,
+          ),
+          validator: (v) =>
+              v == null || v.trim().isEmpty ? 'Obrigatório' : null,
+        ),
+        const SizedBox(height: Sp.s12),
+        _TestNotificationButton(
+          label: 'Testar template genérico',
+          getTitleTemplate: () => s._notificationTitleTemplateController.text.trim(),
+          getBodyTemplate:  () => s._notificationBodyTemplateController.text.trim(),
+          getFallbackTitle: null,
+          getFallbackBody:  null,
+        ),
+        const SizedBox(height: Sp.s24),
+
+        // Increase template
+        Text('Template para aumento de contagem (opcional)',
+            style: AppText.captionLight(dark: dark)),
+        const SizedBox(height: Sp.s12),
+        TextFormField(
+          controller: s._increaseTitleController,
+          decoration: const InputDecoration(
+            labelText: 'Titulo — somente aumento',
+            hintText: 'Deixe vazio para usar o template padrão',
+          ),
+        ),
+        const SizedBox(height: Sp.s12),
+        TextFormField(
+          controller: s._increaseBodyController,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Corpo — somente aumento',
+            hintText: 'Deixe vazio para usar o template padrão',
+          ),
+        ),
+        const SizedBox(height: Sp.s12),
+        _TestNotificationButton(
+          label: 'Testar template de aumento',
+          getTitleTemplate: () => s._increaseTitleController.text.trim(),
+          getBodyTemplate:  () => s._increaseBodyController.text.trim(),
+          getFallbackTitle: () => s._notificationTitleTemplateController.text.trim(),
+          getFallbackBody:  () => s._notificationBodyTemplateController.text.trim(),
+        ),
+        const SizedBox(height: Sp.s24),
+
+        // Decrease template
+        Text('Template para diminuição de contagem (opcional)',
+            style: AppText.captionLight(dark: dark)),
+        const SizedBox(height: Sp.s12),
+        TextFormField(
+          controller: s._decreaseTitleController,
+          decoration: const InputDecoration(
+            labelText: 'Titulo — somente diminuição',
+            hintText: 'Deixe vazio para usar o template padrão',
+          ),
+        ),
+        const SizedBox(height: Sp.s12),
+        TextFormField(
+          controller: s._decreaseBodyController,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Corpo — somente diminuição',
+            hintText: 'Deixe vazio para usar o template padrão',
+          ),
+        ),
+        const SizedBox(height: Sp.s12),
+        _TestNotificationButton(
+          label: 'Testar template de diminuição',
+          getTitleTemplate: () => s._decreaseTitleController.text.trim(),
+          getBodyTemplate:  () => s._decreaseBodyController.text.trim(),
+          getFallbackTitle: () => s._notificationTitleTemplateController.text.trim(),
+          getFallbackBody:  () => s._notificationBodyTemplateController.text.trim(),
+        ),
+        const SizedBox(height: Sp.s16),
+
+        // Placeholders reference
+        const Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Chip(label: Text('{queryName}')),
+            Chip(label: Text('{previousCount}')),
+            Chip(label: Text('{currentCount}')),
+            Chip(label: Text('{diff}')),
+            Chip(label: Text('{newCount}')),
+            Chip(label: Text('{time}')),
+            Chip(label: Text('{url}')),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AppearanceTab extends StatelessWidget {
+  const _AppearanceTab(this.s);
+  final _SettingsCardState s;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Tema do aplicativo', style: AppText.body(dark: dark)),
+        const SizedBox(height: Sp.s12),
+        StatefulBuilder(
+          builder: (context, setSub) => Container(
+            decoration: BoxDecoration(
+              border: Border.all(
+                  color: dark ? AppColors.darkBorder : AppColors.inputBorder),
+              borderRadius: BorderRadius.circular(AppRadius.micro),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ThemeTab(
+                  label: 'Claro',
+                  icon: Icons.light_mode_outlined,
+                  isSelected: s._themeMode == 'light',
+                  dark: dark,
+                   onTap: () {
+                     s.setThemeMode('light');
+                     setSub(() {});
+                   },
+                ),
+                _ThemeTab(
+                  label: 'Escuro',
+                  icon: Icons.dark_mode_outlined,
+                  isSelected: s._themeMode == 'dark',
+                  dark: dark,
+                   onTap: () {
+                     s.setThemeMode('dark');
+                     setSub(() {});
+                   },
+                ),
+                _ThemeTab(
+                  label: 'Sistema',
+                  icon: Icons.brightness_auto_outlined,
+                  isSelected: s._themeMode == 'system',
+                  dark: dark,
+                   onTap: () {
+                     s.setThemeMode('system');
+                     setSub(() {});
+                   },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BackupTab extends StatelessWidget {
+  const _BackupTab(this.s);
+  final _SettingsCardState s;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: Sp.s12,
+      runSpacing: Sp.s12,
+      children: [
+        OutlinedButton.icon(
+          onPressed: () async {
+            await context.read<AppState>().copyBackupToClipboard();
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content: Text('Backup copiado para a área de transferência.')),
+            );
+          },
+          icon: const Icon(Icons.copy_all_outlined),
+          label: const Text('Copiar backup'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => s._showImportBackupDialog(context),
+          icon: const Icon(Icons.upload_file_outlined),
+          label: const Text('Restaurar backup'),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Shared sub-widgets ───────────────────────────────────────────────────────
+
 class _TestNotificationButton extends StatelessWidget {
   const _TestNotificationButton({
     required this.label,
@@ -520,7 +599,7 @@ class _TestNotificationButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.tonalIcon(
+    return OutlinedButton.icon(
       onPressed: () {
         final title = getTitleTemplate().isNotEmpty
             ? getTitleTemplate()
@@ -530,7 +609,7 @@ class _TestNotificationButton extends StatelessWidget {
             : (getFallbackBody?.call() ?? defaultNotificationBodyTemplate);
         context.read<AppState>().sendTestNotificationWithTemplates(
               titleTemplate: title,
-              bodyTemplate: body,
+              bodyTemplate:  body,
             );
       },
       icon: const Icon(Icons.notifications_active_outlined),
@@ -539,24 +618,50 @@ class _TestNotificationButton extends StatelessWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.icon, required this.label});
+class _ThemeTab extends StatelessWidget {
+  const _ThemeTab({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.dark,
+    required this.onTap,
+  });
 
-  final IconData icon;
   final String label;
+  final IconData icon;
+  final bool isSelected;
+  final bool dark;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: theme.colorScheme.primary),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.micro),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.notionBlue : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.micro),
         ),
-      ],
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16,
+                color: isSelected ? AppColors.pureWhite : AppColors.warmGray500),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: AppText.fontFamily,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: isSelected ? AppColors.pureWhite : AppColors.warmGray500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

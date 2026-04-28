@@ -1,83 +1,139 @@
-# Redmine Monitor em Flutter
+# Redmine Monitor (Flutter)
 
-Aplicativo Flutter com monitoramento de consultas do Redmine, persistencia em SQLite e alerta dentro do app com som.
+Aplicativo Flutter para monitorar consultas salvas do Redmine e disparar alertas quando a contagem muda.
 
-## Recursos implementados
+Plataformas alvo principais: **Windows e macOS**.
+Web e mobile sao suportes secundarios.
 
-- Configuracao de URL do Redmine, API key e intervalo padrao
-- Cadastro de consultas monitoradas (URL da consulta, `countPath`, intervalo e status ativa/pausada)
-- Acoes rapidas por consulta: executar agora, pausar/ativar, duplicar, editar e excluir
-- Persistencia local em SQLite (`settings`, `queries`, `alerts`)
-- Monitoramento por polling dentro do app
-- Alerta in-app (SnackBar + som do sistema) com cooldown configuravel
-- Tema com suporte a `Claro`, `Escuro` e `Sistema`
-- Lista de alertas com botao para abrir link direto da atividade
-- Logs com busca e filtros por severidade
-- Backup/restauracao de configuracao+consultas em JSON
+## O que o app faz
 
-## Estrutura principal
+- Configura URL do Redmine, API key e intervalo padrao.
+- Monitora consultas com polling e detecta delta de contagem.
+- Exibe alertas in-app e notificacoes locais.
+- Persiste dados em SQLite (`settings`, `queries`, `alerts`, `logs`).
+- Permite backup/restauracao de configuracao e consultas.
+- Suporta tema claro, escuro e sistema.
 
-- `lib/services/database_service.dart`: schema SQLite + CRUD
-- `lib/services/redmine_api_service.dart`: chamadas HTTP para Redmine
-- `lib/services/monitor_service.dart`: scheduler e deteccao de delta
-- `lib/state/app_state.dart`: estado global com `ChangeNotifier`
-- `lib/ui/*`: telas de configuracao, consultas e alertas
+## Importante antes de tudo
 
-## Como rodar
+Este repositorio **nao** deve executar `flutter create .`.
+Os arquivos de plataforma ja existem e esse comando pode sobrescrever configuracoes.
 
-Como este repositorio nao foi inicializado com `flutter create`, primeiro gere os arquivos de plataforma:
+## Requisitos
 
-```bash
-flutter create .
-```
+- Flutter SDK instalado
+- Node.js (somente para Web, por causa do proxy CORS)
 
-Depois:
+## Setup
 
 ```bash
 flutter pub get
-flutter run
 ```
 
-Para Web (Chrome), use porta fixa para manter dados salvos entre execucoes:
+## Uso principal (desktop)
+
+### Rodar no Windows
 
 ```bash
-flutter run -d chrome --web-port 64451
+flutter run -d windows
 ```
 
-Para monitorar Redmine no Web sem erro de CORS, rode tambem o proxy local em outro terminal:
+### Rodar no macOS
 
 ```bash
-npm run start:proxy
+flutter run -d macos
 ```
 
-Opcional: para apontar para outra URL de proxy:
+## Desenvolvimento
+
+| Objetivo | Comando |
+|---|---|
+| Rodar no Windows | `flutter run -d windows` |
+| Rodar no macOS | `flutter run -d macos` |
+| Rodar no Chrome (porta fixa) | `flutter run -d chrome --web-port 64451` |
+| Rodar proxy CORS (Web) | `node src/web_proxy.js` ou `npm start` |
+| Rodar no Linux | `flutter run -d linux` |
+| Testes | `flutter test` |
+| Lint | `flutter analyze` |
+
+### Web + Redmine (obrigatorio)
+
+No Web, rode o proxy em um terminal separado antes do app:
+
+```bash
+node src/web_proxy.js
+```
+
+Sem o proxy, o navegador bloqueia as chamadas ao Redmine por CORS.
+
+Para usar URL customizada do proxy:
 
 ```bash
 flutter run -d chrome --web-port 64451 --dart-define=REDMINE_PROXY_URL=http://localhost:4311
 ```
 
-## Uso
+## Build
 
-1. Abra o app e preencha URL + API key + intervalo padrao.
-2. Cadastre a consulta colando a URL da pagina da consulta salva no Redmine (o app gera o endpoint JSON).
-3. O app inicia monitoracao automaticamente ao abrir.
-4. Acompanhe execucoes na aba `Logs`.
-5. Quando a contagem mudar, o app toca som, registra alerta e envia notificacao do sistema.
-6. Em `Configuracao > Notificacoes`, personalize titulo/mensagem e use `Testar notificacao`.
-7. Em `Configuracao`, use `Copiar backup` e `Restaurar backup` para migrar dados.
-8. Em `Configuracao > Notificacoes`, escolha o tema do app (`Claro`, `Escuro` ou `Sistema`).
+### Windows
 
-## Formato esperado da consulta
+```bash
+flutter build windows --release
+```
 
-Exemplo:
+### macOS
 
-- URL da consulta: `https://seu-redmine.com/projects/x/issues?query_id=12`
-- O app converte para endpoint de API `.json` automaticamente
-- Count Path padrao: `total_count`
+```bash
+flutter build macos --release
+create-dmg \
+  --volname "Redmine Monitor" \
+  --window-pos 200 120 \
+  --window-size 800 400 \
+  --icon-size 100 \
+  --icon "Redmine Monitor.app" 200 190 \
+  --hide-extension "Redmine Monitor.app" \
+  --app-drop-link 600 185 \
+  "Redmine Monitor.dmg" \
+  "build/macos/Build/Products/Release/Redmine Monitor.app"
+```
+
+### Web
+
+```bash
+flutter build web --release --dart-define=REDMINE_PROXY_URL=http://localhost:4311
+```
+
+### Linux
+
+```bash
+flutter build linux --release
+```
+
+### Android
+
+```bash
+flutter build apk --release
+flutter build appbundle --release
+```
+
+### iOS
+
+```bash
+flutter build ios --release
+```
+
+## Estrutura principal
+
+- `lib/main.dart`: bootstrap do app, init de banco e recursos desktop.
+- `lib/state/app_state.dart`: estado global com `ChangeNotifier`.
+- `lib/services/database_service.dart`: SQLite singleton e schema.
+- `lib/services/redmine_api_service.dart`: chamadas HTTP ao Redmine.
+- `lib/services/monitor_service.dart`: scheduler de polling + deteccao de delta.
+- `lib/services/notifications/notification_template_service.dart`: render de templates.
+- `src/web_proxy.js`: proxy CORS para o Web (`POST /redmine-proxy/fetch`).
 
 ## Templates de notificacao
 
-Placeholders disponiveis para titulo e mensagem:
+Placeholders suportados em titulo e mensagem:
 
 - `{queryName}`
 - `{previousCount}`
@@ -86,17 +142,8 @@ Placeholders disponiveis para titulo e mensagem:
 - `{time}`
 - `{url}`
 
-## Menus principais
-
-- `Monitoracao`: status geral, saude das consultas e alertas recentes
-- `Consultas`: cadastro e acoes rapidas por consulta
-- `Configuracao`: conexao, notificacoes, cooldown e backup
-- `Logs`: trilha de execucao com busca e filtros
-
 ## Observacoes
 
-- O monitoramento atual roda enquanto o app esta aberto.
-- No Web, o SQLite fica no `IndexedDB` do navegador e e separado por origem (`host:porta`). Se a porta mudar, os dados anteriores nao aparecem.
-- No Web, o app usa proxy local (`http://localhost:4311`) para evitar bloqueio de CORS do navegador ao chamar o Redmine.
-- No Chrome, a notificacao de sistema depende de permissao do navegador (Allow notifications).
-- Para monitoramento em background real (app fechado), o proximo passo e integrar servico de background por plataforma.
+- O monitoramento acontece enquanto o app esta aberto.
+- No Web, dados ficam no `IndexedDB` e sao separados por origem (`host:porta`).
+- Para manter os dados no desenvolvimento Web, use sempre `--web-port 64451`.

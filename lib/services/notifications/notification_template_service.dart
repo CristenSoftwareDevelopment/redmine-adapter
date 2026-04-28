@@ -33,6 +33,7 @@ class NotificationTemplateService {
     final d = local.day.toString().padLeft(2, '0');
     final h = local.hour.toString().padLeft(2, '0');
     final min = local.minute.toString().padLeft(2, '0');
-    return '$y-$m-$d $h:$min';
+    final sec = local.second.toString().padLeft(2, '0');
+    return '$d-$m-$y $h:$min:$sec';
   }
 }

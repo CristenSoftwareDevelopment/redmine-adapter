@@ -36,7 +36,7 @@ class AppState extends ChangeNotifier {
   final AlertNotifier _alertNotifier = AlertNotifier.instance;
   final NotificationTemplateService _templateService = NotificationTemplateService();
 
-  AppSettings settings = AppSettings(baseUrl: '', apiKey: '', defaultPollSeconds: 180);
+  AppSettings settings = AppSettings(baseUrl: '', apiKey: '');
   List<MonitoredQuery> queries = const [];
   List<AlertEvent> alerts = const [];
   List<MonitorLog> monitorLogs = const [];
@@ -46,9 +46,49 @@ class AppState extends ChangeNotifier {
   AlertEvent? lastAlert;
   String? initError;
 
+  /// Set to true when startup credential validation fails.
+  bool invalidCredentials = false;
+
+  /// True when the app has not been configured yet (no baseUrl or apiKey),
+  /// OR when stored credentials were rejected by Redmine on startup.
+  bool get needsOnboarding =>
+      settings.baseUrl.trim().isEmpty ||
+      settings.apiKey.trim().isEmpty ||
+      invalidCredentials;
+
   Future<void> init() async {
     try {
       await refreshData();
+
+      // Seed default query on first run (empty DB).
+      if (queries.isEmpty) {
+        await _seedDefaultQuery();
+        await refreshData();
+      }
+
+      // Validate stored credentials on every startup.
+      if (settings.baseUrl.trim().isNotEmpty && settings.apiKey.trim().isNotEmpty) {
+        try {
+          final accountName = await RedmineApiService().fetchAccountName(
+            baseUrl: settings.baseUrl,
+            apiKey: settings.apiKey,
+          );
+          // Update account name if it changed.
+          if (accountName != settings.accountName) {
+            final updated = settings.copyWith(accountName: accountName);
+            await _databaseService.saveSettings(updated);
+            settings = updated;
+          }
+          invalidCredentials = false;
+        } catch (_) {
+          // Request failed — treat credentials as invalid.
+          invalidCredentials = true;
+          loading = false;
+          notifyListeners();
+          return;
+        }
+      }
+
       await _monitorService.start();
       monitoring = true;
       initError = null;
@@ -76,6 +116,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Inserts the built-in default query (open issues assigned to me).
+  /// Called only once, when the database has no queries.
+  Future<void> _seedDefaultQuery() async {
+    final defaultQuery = MonitoredQuery(
+      name: 'Issues atribuídas a mim',
+      endpoint: '/issues.json?assigned_to_id=me&status_id=open',
+      directUrl: '/issues?assigned_to_id=me&status_id=open',
+      countPath: 'total_count',
+    );
+    await _databaseService.insertQuery(defaultQuery);
+  }
+
   Future<void> saveSettings(AppSettings next) async {
     await _databaseService.saveSettings(next);
     settings = next;
@@ -84,6 +136,30 @@ class AppState extends ChangeNotifier {
     if (monitoring) {
       await _monitorService.restart();
     }
+  }
+
+  /// Validates credentials against /my/account.json, saves settings with the
+  /// resolved account name, then starts the monitor.
+  /// Throws if credentials are invalid.
+  Future<void> saveOnboardingSettings({
+    required String baseUrl,
+    required String apiKey,
+  }) async {
+    final accountName = await RedmineApiService().fetchAccountName(
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+    );
+    final next = settings.copyWith(
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      accountName: accountName,
+    );
+    await _databaseService.saveSettings(next);
+    settings = next;
+    invalidCredentials = false;
+    await _monitorService.restart();
+    monitoring = true;
+    notifyListeners();
   }
 
   Future<void> addQuery(MonitoredQuery query) async {
@@ -109,7 +185,7 @@ class AppState extends ChangeNotifier {
   Future<void> duplicateQuery(MonitoredQuery query) async {
     final duplicate = query.copyWith(
       id: null,
-      name: '${query.name} (copia)',
+      name: '${query.name} (cópia)',
       lastCount: null,
       lastCheckedAt: null,
     );
@@ -186,16 +262,12 @@ class AppState extends ChangeNotifier {
       'settings': {
         'baseUrl': settings.baseUrl,
         'apiKey': settings.apiKey,
-        'defaultPollSeconds': settings.defaultPollSeconds,
-        'alertCooldownSeconds': settings.alertCooldownSeconds,
         'notificationTitleTemplate': settings.notificationTitleTemplate,
         'notificationBodyTemplate': settings.notificationBodyTemplate,
         'notificationIncreaseTitleTemplate': settings.notificationIncreaseTitleTemplate,
         'notificationIncreaseBodyTemplate': settings.notificationIncreaseBodyTemplate,
         'notificationDecreaseTitleTemplate': settings.notificationDecreaseTitleTemplate,
         'notificationDecreaseBodyTemplate': settings.notificationDecreaseBodyTemplate,
-        'monitorStartHour': settings.monitorStartHour,
-        'monitorEndHour': settings.monitorEndHour,
       },
       'queries': queries
           .map((q) => {
@@ -221,20 +293,18 @@ class AppState extends ChangeNotifier {
   Future<void> importBackupJson(String raw) async {
     final parsed = jsonDecode(raw);
     if (parsed is! Map<String, dynamic>) {
-      throw const FormatException('Backup invalido: JSON raiz precisa ser objeto.');
+      throw const FormatException('Backup inválido: JSON raiz precisa ser objeto.');
     }
 
     final settingsMap = parsed['settings'];
     final queriesList = parsed['queries'];
     if (settingsMap is! Map<String, dynamic> || queriesList is! List) {
-      throw const FormatException('Backup invalido: campos settings/queries ausentes.');
+      throw const FormatException('Backup inválido: campos settings/queries ausentes.');
     }
 
     final importedSettings = AppSettings(
       baseUrl: (settingsMap['baseUrl'] ?? '').toString(),
       apiKey: (settingsMap['apiKey'] ?? '').toString(),
-      defaultPollSeconds: int.tryParse('${settingsMap['defaultPollSeconds']}') ?? 180,
-      alertCooldownSeconds: int.tryParse('${settingsMap['alertCooldownSeconds']}') ?? 600,
       notificationTitleTemplate:
           (settingsMap['notificationTitleTemplate'] ?? defaultNotificationTitleTemplate)
               .toString(),
@@ -249,8 +319,6 @@ class AppState extends ChangeNotifier {
           settingsMap['notificationDecreaseTitleTemplate'] as String?,
       notificationDecreaseBodyTemplate:
           settingsMap['notificationDecreaseBodyTemplate'] as String?,
-      monitorStartHour: settingsMap['monitorStartHour'] as int?,
-      monitorEndHour: settingsMap['monitorEndHour'] as int?,
     );
 
     await _databaseService.saveSettings(importedSettings);
@@ -264,7 +332,7 @@ class AppState extends ChangeNotifier {
         endpoint: (entry['endpoint'] ?? '').toString(),
         directUrl: (entry['directUrl'] ?? '').toString(),
         countPath: (entry['countPath'] ?? 'total_count').toString(),
-        pollSeconds: int.tryParse('${entry['pollSeconds']}'),
+        pollSeconds: int.tryParse('${entry['pollSeconds']}') ?? defaultPollSeconds,
         enabled: (entry['enabled'] ?? true) == true,
         alertOn: (entry['alertOn'] ?? alertOnAny).toString(),
         notificationTitleTemplate: entry['notificationTitleTemplate'] as String?,
@@ -286,7 +354,7 @@ class AppState extends ChangeNotifier {
         orElse: () => MonitorLog(
           id: null,
           level: 'unknown',
-          message: 'Sem execucoes ainda.',
+          message: 'Sem execuções ainda.',
           createdAt: DateTime.fromMillisecondsSinceEpoch(0),
         ),
       );
