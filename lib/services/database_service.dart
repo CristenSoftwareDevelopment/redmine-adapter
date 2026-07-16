@@ -14,8 +14,16 @@ class DatabaseService {
 
   static final DatabaseService instance = DatabaseService._();
   static const _dbVersion = 10;
+  static const String _dbEnvironmentOverride = String.fromEnvironment(
+    'REDMINE_DB_ENV',
+    defaultValue: '',
+  );
 
   Database? _db;
+
+  String get databaseEnvironment => _databaseEnvironment;
+
+  bool get isProductionDatabase => _databaseEnvironment == 'prod';
 
   Future<Database> get db async {
     if (_db != null) {
@@ -27,19 +35,18 @@ class DatabaseService {
 
   Future<Database> _open() async {
     String path;
-    
+
     if (kIsWeb) {
-      path = 'redmine_monitor.db';
+      path = _databaseFileName;
     } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      // Use user-accessible directory instead of app directory
       final home = Platform.environment['APPDATA'] ??
                    Platform.environment['HOME'] ??
                    '.';
-      final dbDir = join(home, 'RedmineMonitor');
+      final dbDir = join(home, _databaseDirectoryName);
       await Directory(dbDir).create(recursive: true);
-      path = join(dbDir, 'redmine_monitor.db');
+      path = join(dbDir, _databaseFileName);
     } else {
-      path = join(await getDatabasesPath(), 'redmine_monitor.db');
+      path = join(await getDatabasesPath(), _databaseFileName);
     }
 
     return openDatabase(
@@ -219,6 +226,30 @@ class DatabaseService {
         );
       },
     );
+  }
+
+  String get _databaseDirectoryName {
+    return switch (_databaseEnvironment) {
+      'prod' => 'RedmineMonitor',
+      'dev' => 'RedmineMonitor-dev',
+      final custom => 'RedmineMonitor-$custom',
+    };
+  }
+
+  String get _databaseFileName {
+    return switch (_databaseEnvironment) {
+      'prod' => 'redmine_monitor.db',
+      'dev' => 'redmine_monitor.dev.db',
+      final custom => 'redmine_monitor.$custom.db',
+    };
+  }
+
+  String get _databaseEnvironment {
+    final normalizedOverride = _dbEnvironmentOverride.trim().toLowerCase();
+    if (normalizedOverride.isNotEmpty) {
+      return normalizedOverride;
+    }
+    return kReleaseMode ? 'prod' : 'dev';
   }
 
   Future<void> _createBaseTables(Database database) async {

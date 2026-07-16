@@ -34,6 +34,13 @@ flutter pub get
 flutter run -d chrome --web-port 64451 --dart-define=REDMINE_PROXY_URL=http://localhost:4311
 ```
 
+**Banco por ambiente**:
+```bash
+flutter run -d windows --dart-define=REDMINE_DB_ENV=dev
+flutter run -d windows --release --dart-define=REDMINE_DB_ENV=prod
+```
+Sem `REDMINE_DB_ENV`, o app usa `prod` em `release` e `dev` em `debug/profile`.
+
 ---
 
 ## Architecture

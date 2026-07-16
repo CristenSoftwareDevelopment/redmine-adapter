@@ -8,6 +8,7 @@ import '../models/app_settings.dart';
 import '../models/monitored_query.dart';
 
 class RedmineApiService {
+  static const Duration _requestTimeout = Duration(seconds: 60);
   static const String _proxyBaseUrl = String.fromEnvironment(
     'REDMINE_PROXY_URL',
     defaultValue: 'http://localhost:4311',
@@ -34,10 +35,16 @@ class RedmineApiService {
             'Accept': 'application/json',
             'X-Redmine-API-Key': apiKey,
           },
-        );
+        ).timeout(_requestTimeout);
       }
     } on http.ClientException catch (e) {
-      throw Exception('Falha de rede: ${e.message}');
+      throw Exception(
+        'Falha de rede: ${_describeNetworkError(uri: uri, message: e.message)}',
+      );
+    } on TimeoutException {
+      throw Exception(
+        'Falha de rede: tempo limite ao acessar ${uri.host}. Verifique a URL e sua conexão.',
+      );
     }
 
     if (response.statusCode == 401 || response.statusCode == 403) {
@@ -160,7 +167,7 @@ class RedmineApiService {
           'Accept': 'application/json',
           'X-Redmine-API-Key': settings.apiKey,
         },
-      );
+      ).timeout(_requestTimeout);
 
       if (response.statusCode >= 500) {
         throw RetryableRequestException('Servidor Redmine retornou ${response.statusCode}.');
@@ -170,7 +177,7 @@ class RedmineApiService {
       throw RetryableRequestException(
         kIsWeb
             ? 'Falha de rede no proxy (${error.message}). Verifique se o proxy local está rodando em $_proxyBaseUrl.'
-            : 'Falha de rede ao consultar Redmine (${error.message}).',
+            : 'Falha de rede ao consultar Redmine: ${_describeNetworkError(uri: uri, message: error.message)}',
       );
     } on TimeoutException {
       throw RetryableRequestException('Timeout ao consultar Redmine.');
@@ -204,17 +211,60 @@ class RedmineApiService {
 
   Future<http.Response> _fetchViaProxy(Uri targetUri, String apiKey) async {
     final proxyUri = Uri.parse('$_proxyBaseUrl/redmine-proxy/fetch');
-    return http.post(
-      proxyUri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: jsonEncode({
-        'url': targetUri.toString(),
-        'apiKey': apiKey,
-      }),
-    );
+    return http
+        .post(
+          proxyUri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: jsonEncode({
+            'url': targetUri.toString(),
+            'apiKey': apiKey,
+          }),
+        )
+        .timeout(_requestTimeout);
+  }
+
+  String _describeNetworkError({
+    required Uri uri,
+    required String message,
+  }) {
+    final normalizedMessage = message.toLowerCase();
+    if (normalizedMessage.contains('failed host lookup') ||
+        normalizedMessage.contains('could not resolve host') ||
+        normalizedMessage.contains('name or service not known') ||
+        normalizedMessage.contains('nodename nor servname provided')) {
+      return 'não foi possível resolver o host "${uri.host}". Verifique a URL informada e, se necessário, sua VPN ou DNS.';
+    }
+    if (normalizedMessage.contains('semaforo expirou') ||
+        normalizedMessage.contains('semáforo expirou')) {
+      return 'não foi possível alcançar "${uri.host}". Verifique a URL, VPN, firewall ou se o servidor está acessível nesta rede.';
+    }
+    if (normalizedMessage.contains('connection refused')) {
+      return 'conexão recusada por "${uri.host}". Verifique se o servidor está online e aceitando HTTPS.';
+    }
+    if (normalizedMessage.contains('handshake') ||
+        normalizedMessage.contains('certificate') ||
+        normalizedMessage.contains('certificado') ||
+        normalizedMessage.contains('ssl') ||
+        normalizedMessage.contains('tls')) {
+      return 'falha de TLS/certificado ao acessar "${uri.host}". Verifique certificado HTTPS, inspeção SSL do antivírus/proxy corporativo ou relógio do Windows.';
+    }
+    if (normalizedMessage.contains('network is unreachable') ||
+        normalizedMessage.contains('no route to host') ||
+        normalizedMessage.contains('unreachable')) {
+      return 'sem rota de rede até "${uri.host}". Verifique conexão, VPN, proxy corporativo ou firewall do Windows.';
+    }
+    if (normalizedMessage.contains('connection reset') ||
+        normalizedMessage.contains('forcibly closed') ||
+        normalizedMessage.contains('software caused connection abort')) {
+      return 'a conexão com "${uri.host}" foi encerrada durante a requisição. Isso pode indicar proxy, antivírus, firewall ou TLS incompatível.';
+    }
+    if (normalizedMessage.contains('proxy')) {
+      return 'houve falha de proxy ao acessar "${uri.host}". Verifique as configurações de proxy do Windows ou da rede corporativa.';
+    }
+    return '$message (${uri.host})';
   }
 
   String _ensureJsonPath(String path) {

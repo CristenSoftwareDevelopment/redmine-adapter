@@ -116,6 +116,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final appState = context.watch<AppState>();
     final dark = Theme.of(context).brightness == Brightness.dark;
     final preview = _normalizedPreview;
     final rawInput = _baseUrlController.text.trim();
@@ -150,8 +151,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   style: AppText.captionLight(dark: dark),
                 ),
                 const SizedBox(height: Sp.s32),
-                // ── Invalid-credentials banner ───────────────────────────
-                if (context.read<AppState>().invalidCredentials) ...[
+                if (appState.onboardingErrorMessage != null) ...[
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: Sp.s16, vertical: Sp.s12),
@@ -169,8 +169,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         const SizedBox(width: Sp.s8),
                         Expanded(
                           child: Text(
-                            'Suas credenciais foram recusadas pelo Redmine. '
-                            'Verifique a URL e a API key e tente novamente.',
+                            appState.invalidCredentials
+                                ? 'Suas credenciais foram recusadas pelo Redmine. '
+                                    'Verifique a URL e a API key e tente novamente.\n\n'
+                                    '${appState.onboardingErrorMessage!}'
+                                : appState.onboardingErrorMessage!,
                             style: AppText.caption(dark: dark).copyWith(
                               color: AppColors.orange,
                             ),

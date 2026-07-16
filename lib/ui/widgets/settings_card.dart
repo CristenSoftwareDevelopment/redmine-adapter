@@ -46,6 +46,7 @@ class _SettingsCardState extends State<SettingsCard> {
   late final TextEditingController _decreaseBodyController;
   String _themeMode = defaultThemeMode;
   bool _seeded = false;
+  bool _saving = false;
   _SettingsTab _activeTab = _SettingsTab.connection;
 
   // Public mutator — used by child StatelessWidget to avoid
@@ -98,7 +99,8 @@ class _SettingsCardState extends State<SettingsCard> {
   // ── Save ──────────────────────────────────────────────────────────────────
 
   Future<void> _save(BuildContext context) async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_saving || !_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
     final state    = context.read<AppState>();
     final settings = AppSettings(
       baseUrl:              _baseUrlController.text.trim(),
@@ -115,11 +117,17 @@ class _SettingsCardState extends State<SettingsCard> {
       notificationDecreaseBodyTemplate:
           _decreaseBodyController.text.trim().isEmpty ? null : _decreaseBodyController.text.trim(),
     );
-    await state.saveSettings(settings);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Configuração salva.')),
-    );
+    try {
+      await state.saveSettings(settings);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Configuração salva.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -163,9 +171,15 @@ class _SettingsCardState extends State<SettingsCard> {
                 child: Align(
                   alignment: Alignment.centerRight,
                   child: FilledButton.icon(
-                    onPressed: () => _save(context),
-                    icon: const Icon(Icons.save_outlined),
-                    label: const Text('Salvar configuração'),
+                    onPressed: _saving ? null : () => _save(context),
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                    label: Text(_saving ? 'Salvando...' : 'Salvar configuração'),
                   ),
                 ),
               ),

@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 import '../models/alert_event.dart';
 import '../state/app_state.dart';
 import '../services/theme_service.dart';
+import 'onboarding_screen.dart';
 import 'widgets/alerts_card.dart';
 import 'widgets/logs_card.dart';
 import 'widgets/monitoring_health_card.dart';
@@ -96,6 +97,12 @@ class _HomeScreenState extends State<HomeScreen>
         final sidebarBg = dark ? AppColors.darkCard : AppColors.pureWhite;
         final contentBg = dark ? AppColors.darkSurface : AppColors.warmWhite;
         final borderColor = dark ? AppColors.darkBorder : AppColors.whisperBorder;
+        final hasConfiguredAccount =
+            appState.settings.baseUrl.trim().isNotEmpty &&
+            appState.settings.apiKey.trim().isNotEmpty;
+        final accountLabel = (appState.settings.accountName?.trim().isNotEmpty ?? false)
+            ? appState.settings.accountName!.trim()
+            : 'Conta conectada';
 
         return Scaffold(
           backgroundColor: contentBg,
@@ -177,18 +184,34 @@ class _HomeScreenState extends State<HomeScreen>
                       color: sidebarBg,
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          if (appState.settings.accountName != null &&
-                              appState.settings.accountName!.isNotEmpty) ...[
+                          if (!appState.isProductionDatabase)
+                            _EnvironmentBadge(
+                              environment: appState.databaseEnvironment,
+                              isProduction: appState.isProductionDatabase,
+                              dark: dark,
+                            ),
+                          const Spacer(),
+                          if (hasConfiguredAccount) ...[
                             Icon(Icons.account_circle_outlined,
                                 size: 16,
                                 color: dark ? AppColors.darkMuted : AppColors.warmDark),
                             const SizedBox(width: 6),
                             Text(
-                              appState.settings.accountName!,
+                              accountLabel,
                               style: AppText.caption(dark: dark).copyWith(
                                 color: dark ? AppColors.darkMuted : AppColors.warmDark,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            TextButton.icon(
+                              onPressed: () => _confirmSignOut(context),
+                              icon: const Icon(Icons.logout, size: 16),
+                              label: const Text('Sair'),
+                              style: TextButton.styleFrom(
+                                foregroundColor:
+                                    dark ? AppColors.darkMuted : AppColors.warmDark,
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
                               ),
                             ),
                           ],
@@ -235,6 +258,74 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
     });
+  }
+
+  Future<void> _confirmSignOut(BuildContext context) async {
+    final shouldSignOut = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Sair da conta'),
+        content: const Text(
+          'A URL e a API key atuais serão removidas deste ambiente. As consultas salvas serão mantidas.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Sair'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldSignOut != true || !context.mounted) return;
+    await context.read<AppState>().signOut();
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const OnboardingScreen()),
+      (_) => false,
+    );
+  }
+}
+
+class _EnvironmentBadge extends StatelessWidget {
+  const _EnvironmentBadge({
+    required this.environment,
+    required this.isProduction,
+    required this.dark,
+  });
+
+  final String environment;
+  final bool isProduction;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor = isProduction
+        ? (dark ? const Color(0x1FD2CFC9) : const Color(0xFFF0EEEB))
+        : (dark ? const Color(0x332A9D99) : const Color(0x1F2A9D99));
+    final borderColor = isProduction
+        ? (dark ? AppColors.darkBorder : AppColors.whisperBorder)
+        : AppColors.teal.withValues(alpha: dark ? 0.45 : 0.3);
+    final textColor = isProduction
+        ? (dark ? AppColors.darkMuted : AppColors.warmDark)
+        : (dark ? const Color(0xFF7CE5D9) : AppColors.teal);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: borderColor),
+      ),
+      child: Text(
+        environment.toUpperCase(),
+        style: AppText.badge().copyWith(color: textColor),
+      ),
+    );
   }
 }
 

@@ -45,9 +45,14 @@ class AppState extends ChangeNotifier {
   bool monitoring = false;
   AlertEvent? lastAlert;
   String? initError;
+  String? onboardingErrorMessage;
 
   /// Set to true when startup credential validation fails.
   bool invalidCredentials = false;
+
+  String get databaseEnvironment => _databaseService.databaseEnvironment;
+
+  bool get isProductionDatabase => _databaseService.isProductionDatabase;
 
   /// True when the app has not been configured yet (no baseUrl or apiKey),
   /// OR when stored credentials were rejected by Redmine on startup.
@@ -80,9 +85,11 @@ class AppState extends ChangeNotifier {
             settings = updated;
           }
           invalidCredentials = false;
-        } catch (_) {
-          // Request failed — treat credentials as invalid.
-          invalidCredentials = true;
+          onboardingErrorMessage = null;
+        } catch (error) {
+          final message = error.toString().replaceFirst('Exception: ', '');
+          invalidCredentials = message.startsWith('Credenciais inválidas');
+          onboardingErrorMessage = message;
           loading = false;
           notifyListeners();
           return;
@@ -157,8 +164,26 @@ class AppState extends ChangeNotifier {
     await _databaseService.saveSettings(next);
     settings = next;
     invalidCredentials = false;
+    onboardingErrorMessage = null;
     await _monitorService.restart();
     monitoring = true;
+    notifyListeners();
+  }
+
+  Future<void> signOut() async {
+    final clearedSettings = settings.copyWith(
+      baseUrl: '',
+      apiKey: '',
+      accountName: null,
+    );
+    await _databaseService.saveSettings(clearedSettings);
+    settings = clearedSettings;
+    invalidCredentials = false;
+    onboardingErrorMessage = null;
+    if (monitoring) {
+      await _monitorService.stop();
+      monitoring = false;
+    }
     notifyListeners();
   }
 
