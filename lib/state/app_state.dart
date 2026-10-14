@@ -144,9 +144,12 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveSettings(AppSettings next) async {
+    final credentialsChanged =
+        next.baseUrl != settings.baseUrl || next.apiKey != settings.apiKey;
     await _databaseService.saveSettings(next);
     settings = next;
     notifyListeners();
+    if (credentialsChanged) unawaited(_refreshAdmin());
 
     if (monitoring) {
       await _monitorService.restart();
@@ -180,7 +183,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _refreshAdmin() async {
-    isAdmin = await RedmineApiService().isAdmin(settings);
+    final checked = settings;
+    final admin = await RedmineApiService().isAdmin(checked);
+    // Credentials changed (or signed out) while checking: drop the result.
+    if (checked.baseUrl != settings.baseUrl || checked.apiKey != settings.apiKey) return;
+    isAdmin = admin;
     notifyListeners();
   }
 
@@ -396,56 +403,62 @@ class AppState extends ChangeNotifier {
           settingsMap['notificationDecreaseBodyTemplate'] as String?,
     );
 
+    // Parse everything before touching the database, so a bad entry
+    // aborts the import instead of leaving tables half cleared.
+    final queries = [
+      for (final entry in queriesList.whereType<Map>())
+        MonitoredQuery(
+          name: (entry['name'] ?? 'Consulta').toString(),
+          endpoint: (entry['endpoint'] ?? '').toString(),
+          directUrl: (entry['directUrl'] ?? '').toString(),
+          countPath: (entry['countPath'] ?? 'total_count').toString(),
+          pollSeconds: int.tryParse('${entry['pollSeconds']}') ?? defaultPollSeconds,
+          enabled: (entry['enabled'] ?? true) == true,
+          alertRules: entry['alertRules'] is List
+              ? [
+                  for (final r in (entry['alertRules'] as List).whereType<Map>())
+                    AlertRule.fromJson(Map<String, dynamic>.from(r)),
+                ]
+              : [
+                  AlertRule.fromLegacy(
+                    entry['alertOn'] as String?,
+                    entry['notificationTitleTemplate'] as String?,
+                    entry['notificationBodyTemplate'] as String?,
+                  ),
+                ],
+          pinned: entry['pinned'] == true,
+          scheduleWeekdays: entry['scheduleWeekdays'] is List
+              ? List<int>.from((entry['scheduleWeekdays'] as List).map((e) => e as int))
+              : defaultScheduleWeekdays,
+          scheduleStartHour: entry['scheduleStartHour'] as int? ?? defaultScheduleStartHour,
+          scheduleEndHour: entry['scheduleEndHour'] as int? ?? defaultScheduleEndHour,
+        ),
+    ];
+    // Backups before v3 have no teams: keep the current ones.
+    final teamsList = parsed['teams'];
+    final teams = teamsList is! List
+        ? null
+        : [
+            for (final entry in teamsList.whereType<Map>())
+              Team(
+                name: (entry['name'] ?? 'Time').toString(),
+                members: [
+                  for (final m in (entry['members'] as List? ?? const []).whereType<Map>())
+                    if (m['id'] is int) TeamMember.fromJson(Map<String, dynamic>.from(m)),
+                ],
+              ),
+          ];
+
     await _databaseService.saveSettings(importedSettings);
     await _databaseService.clearAlerts();
     await _databaseService.clearQueries();
-    for (final entry in queriesList) {
-      if (entry is! Map) {
-        continue;
-      }
-      final scheduleWeekdays = entry['scheduleWeekdays'] is List
-          ? List<int>.from((entry['scheduleWeekdays'] as List).map((e) => e as int))
-          : defaultScheduleWeekdays;
-      final query = MonitoredQuery(
-        name: (entry['name'] ?? 'Consulta').toString(),
-        endpoint: (entry['endpoint'] ?? '').toString(),
-        directUrl: (entry['directUrl'] ?? '').toString(),
-        countPath: (entry['countPath'] ?? 'total_count').toString(),
-        pollSeconds: int.tryParse('${entry['pollSeconds']}') ?? defaultPollSeconds,
-        enabled: (entry['enabled'] ?? true) == true,
-        alertRules: entry['alertRules'] is List
-            ? (entry['alertRules'] as List)
-                .map((r) => AlertRule.fromJson(Map<String, dynamic>.from(r as Map)))
-                .toList()
-            : [
-                AlertRule.fromLegacy(
-                  entry['alertOn'] as String?,
-                  entry['notificationTitleTemplate'] as String?,
-                  entry['notificationBodyTemplate'] as String?,
-                ),
-              ],
-        pinned: entry['pinned'] == true,
-        scheduleWeekdays: scheduleWeekdays,
-        scheduleStartHour: entry['scheduleStartHour'] as int? ?? defaultScheduleStartHour,
-        scheduleEndHour: entry['scheduleEndHour'] as int? ?? defaultScheduleEndHour,
-      );
+    for (final query in queries) {
       await _databaseService.insertQuery(query);
     }
-
-    // Backups before v3 have no teams: keep the current ones.
-    final teamsList = parsed['teams'];
-    if (teamsList is List) {
+    if (teams != null) {
       await _databaseService.clearTeams();
-      for (final entry in teamsList.whereType<Map>()) {
-        await _databaseService.saveTeam(
-          Team(
-            name: (entry['name'] ?? 'Time').toString(),
-            members: [
-              for (final m in (entry['members'] as List? ?? const []).whereType<Map>())
-                TeamMember.fromJson(Map<String, dynamic>.from(m)),
-            ],
-          ),
-        );
+      for (final team in teams) {
+        await _databaseService.saveTeam(team);
       }
     }
 
@@ -453,6 +466,7 @@ class AppState extends ChangeNotifier {
       await _monitorService.restart();
     }
     await refreshData();
+    unawaited(_refreshAdmin());
   }
 
   List<QueryHealth> get queryHealth {
@@ -516,10 +530,15 @@ class AppState extends ChangeNotifier {
   }
 
   /// Title/body exactly as shown in the OS notification. Alerts created
-  /// before rules existed have no stored text and are rendered with globals.
+  /// before rules existed have no stored text and are rendered again.
   (String, String) alertText(AlertEvent alert) => alert.title != null
       ? (alert.title!, alert.body ?? '')
-      : _templateService.resolve(settings, null, alert);
+      : _templateService.resolve(
+          settings,
+          // The query's first rule carries its pre-rules custom templates.
+          queries.where((q) => q.id == alert.queryId).firstOrNull?.alertRules.firstOrNull,
+          alert,
+        );
 
   Future<void> _notify(AlertEvent alert) async {
     final (title, body) = alertText(alert);

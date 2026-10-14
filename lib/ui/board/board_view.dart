@@ -33,6 +33,7 @@ class _BoardViewState extends State<BoardView> {
   int _defaultPriority = 0;
   String? _error;
   bool _loading = false;
+  int _loadSeq = 0;
   final Set<int> _moving = {};
 
   /// While a card is dragged, empty open-status columns appear as drop targets.
@@ -57,6 +58,7 @@ class _BoardViewState extends State<BoardView> {
 
   Future<void> _load() async {
     final settings = context.read<AppState>().settings;
+    final seq = ++_loadSeq;
     setState(() {
       _loading = true;
       _error = null;
@@ -73,11 +75,16 @@ class _BoardViewState extends State<BoardView> {
         _defaultPriority = max(0, prios.indexWhere((p) => p['is_default'] == true));
       }
       final issues = await _api.getAllPages(settings, widget.query.endpoint, 'issues');
-      if (mounted) setState(() => _issues = issues.map(RedmineIssue.new).toList());
+      // A newer load (e.g. after another drag) owns the screen now.
+      if (mounted && seq == _loadSeq) {
+        setState(() => _issues = issues.map(RedmineIssue.new).toList());
+      }
     } catch (error) {
-      if (mounted) setState(() => _error = '$error'.replaceFirst('Exception: ', ''));
+      if (mounted && seq == _loadSeq) {
+        setState(() => _error = '$error'.replaceFirst('Exception: ', ''));
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && seq == _loadSeq) setState(() => _loading = false);
     }
   }
 
@@ -313,6 +320,8 @@ class _BoardViewState extends State<BoardView> {
   ) {
     final id = status['id'] as int;
     return Container(
+      // Keys keep the dragged card mounted when empty columns appear mid-drag.
+      key: ValueKey(id),
       width: 280,
       margin: const EdgeInsets.only(right: Sp.s12),
       child: DragTarget<RedmineIssue>(
@@ -370,6 +379,7 @@ class _BoardViewState extends State<BoardView> {
                       onTap: () => showIssueDetail(context, issue),
                     );
                     return Padding(
+                      key: ValueKey(issue.id),
                       padding: const EdgeInsets.only(bottom: Sp.s8),
                       child: Draggable<RedmineIssue>(
                         data: issue,

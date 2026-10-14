@@ -483,16 +483,24 @@ class DatabaseService {
     return rows.map(MonitoredQuery.fromDbMap).toList();
   }
 
+  /// Always creates a new row (any id on [query] is ignored).
   Future<int> insertQuery(MonitoredQuery query) async {
     final database = await db;
-    return database.insert('queries', query.toDbMap());
+    return database.insert('queries', query.toDbMap()..remove('id'));
   }
 
+  /// Saves the user-editable fields. Columns owned by the monitor are left
+  /// alone, so a stale copy from the UI can't roll back the last check.
   Future<void> updateQuery(MonitoredQuery query) async {
     final database = await db;
     await database.update(
       'queries',
-      query.toDbMap(),
+      query.toDbMap()
+        ..remove('id')
+        ..remove('last_count')
+        ..remove('last_checked_at')
+        ..remove('last_error')
+        ..remove('last_error_at'),
       where: 'id = ?',
       whereArgs: [query.id],
     );

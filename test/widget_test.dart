@@ -81,6 +81,11 @@ void main() {
       expect(AlertRule.firstMatch(rules, 1, 2), null);
     });
 
+    test('fromJson tolerates a numeric string value', () {
+      expect(AlertRule.fromJson({'op': 'eq', 'value': '3'}).value, 3);
+      expect(AlertRule.fromJson({'op': 'eq', 'value': 'x'}).value, null);
+    });
+
     test('legacy row becomes a single rule', () {
       final query = MonitoredQuery.fromDbMap({
         'id': 1,

@@ -357,6 +357,7 @@ class _TeamReportState extends State<_TeamReport> {
   List<TimeEntry>? _entries;
   final Map<int, String> _subjects = {};
   bool _loading = false;
+  int _loadSeq = 0;
   String? _error;
 
   int? _focusUser;
@@ -419,6 +420,7 @@ class _TeamReportState extends State<_TeamReport> {
   Future<void> _load() async {
     final settings = context.read<AppState>().settings;
     final api = RedmineApiService();
+    final seq = ++_loadSeq;
     setState(() {
       _loading = true;
       _error = null;
@@ -455,11 +457,14 @@ class _TeamReportState extends State<_TeamReport> {
           _subjects[issue['id'] as int] = issue['subject'] as String? ?? '';
         }
       }
-      if (mounted) setState(() => _entries = entries);
+      // The period may have changed while loading: only the latest load wins.
+      if (mounted && seq == _loadSeq) setState(() => _entries = entries);
     } catch (error) {
-      if (mounted) setState(() => _error = '$error'.replaceFirst('Exception: ', ''));
+      if (mounted && seq == _loadSeq) {
+        setState(() => _error = '$error'.replaceFirst('Exception: ', ''));
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && seq == _loadSeq) setState(() => _loading = false);
     }
   }
 

@@ -78,7 +78,7 @@ class AlertRule {
 
   static AlertRule fromJson(Map<String, dynamic> json) => AlertRule(
         op: json['op'] as String? ?? ruleAny,
-        value: json['value'] as int?,
+        value: int.tryParse('${json['value']}'),
         titleTemplate: _blankToNull(json['title'] as String?),
         bodyTemplate: _blankToNull(json['body'] as String?),
       );
