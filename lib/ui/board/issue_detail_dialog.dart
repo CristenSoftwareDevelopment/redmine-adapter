@@ -3,6 +3,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/redmine_issue.dart';
+import '../../models/time_entry.dart';
 import '../../services/redmine_api_service.dart';
 import '../../services/theme_service.dart';
 import '../../state/app_state.dart';
@@ -22,7 +23,7 @@ class IssueDetailDialog extends StatefulWidget {
   State<IssueDetailDialog> createState() => _IssueDetailDialogState();
 }
 
-enum _Tab { description, history, attachments, children }
+enum _Tab { description, history, time, attachments, children }
 
 class _IssueDetailDialogState extends State<IssueDetailDialog> {
   RedmineIssue? _full;
@@ -30,6 +31,10 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
 
   /// Long descriptions used to push the history out of sight: one tab each.
   _Tab _tab = _Tab.description;
+
+  /// Time logged on this issue (only what the user's role may see).
+  List<TimeEntry>? _time;
+  String? _timeError;
 
   static const _fieldLabels = {
     'status_id': 'Status',
@@ -51,6 +56,24 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
   void initState() {
     super.initState();
     _fetch();
+    _fetchTime();
+  }
+
+  Future<void> _fetchTime() async {
+    try {
+      final entries = await RedmineApiService().getAllPages(
+        context.read<AppState>().settings,
+        '/time_entries.json?issue_id=${widget.issue.id}',
+        'time_entries',
+        cap: 2000,
+      );
+      if (!mounted) return;
+      setState(() {
+        _time = entries.map(TimeEntry.fromJson).toList()..sort((a, b) => b.day.compareTo(a.day));
+      });
+    } catch (error) {
+      if (mounted) setState(() => _timeError = '$error'.replaceFirst('Exception: ', ''));
+    }
   }
 
   Future<void> _fetch() async {
@@ -191,6 +214,13 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
           _full == null ? 'Histórico' : 'Histórico (${journals.length})',
           Icons.history,
         ),
+        (
+          _Tab.time,
+          _time == null
+              ? 'Tempo gasto'
+              : 'Tempo gasto (${fmtHours(_time!.fold(0.0, (sum, e) => sum + e.hours))} h)',
+          Icons.schedule,
+        ),
         if (attachments.isNotEmpty)
           (_Tab.attachments, 'Anexos (${attachments.length})', Icons.attach_file),
         if (children.isNotEmpty)
@@ -285,6 +315,8 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [for (final j in journals) _journal(j, dark)],
         );
+      case _Tab.time:
+        return _timeContent(dark);
       case _Tab.attachments:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -315,6 +347,84 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
         );
     }
   }
+
+  /// Totals per person, then each entry (newest first).
+  Widget _timeContent(bool dark) {
+    final entries = _time;
+    if (_timeError != null) {
+      return Text(
+        'Não foi possível carregar o tempo gasto: $_timeError',
+        style: AppText.caption(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
+      );
+    }
+    if (entries == null) return const LinearProgressIndicator(minHeight: 2);
+    if (entries.isEmpty) {
+      return Text(
+        'Nenhum tempo lançado que você possa ver nesta tarefa.',
+        style: AppText.captionLight(dark: dark),
+      );
+    }
+    final total = entries.fold<double>(0, (sum, e) => sum + e.hours);
+    final byPerson = sumHours(entries, (e) => e.userName).entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Tag(
+              'Total ${fmtHours(total)} h · ${entries.length} lançamento${entries.length == 1 ? '' : 's'}',
+              tone: TagTone.green,
+            ),
+            for (final p in byPerson) Tag('${p.key} · ${fmtHours(p.value)} h'),
+          ],
+        ),
+        const SizedBox(height: Sp.s16),
+        for (final e in entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Sp.s12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                UserAvatar(name: e.userName, size: 26),
+                const SizedBox(width: Sp.s12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(text: e.userName, style: AppText.bodySemibold(dark: dark)),
+                            TextSpan(
+                              text: '  ${fmtDate(_ymd(e.day))} · ${e.activity}',
+                              style: AppText.microLabel(dark: dark),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (e.comments.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: Sp.s4),
+                          child: Text(e.comments, style: AppText.body(dark: dark)),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Sp.s12),
+                Text('${fmtHours(e.hours)} h', style: AppText.bodySemibold(dark: dark)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _ymd(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   Widget _journal(Map journal, bool dark) {
     final author = (journal['user'] as Map?)?['name'] as String? ?? '?';
