@@ -196,7 +196,7 @@ class MonitorService {
           queryName: query.name,
           previousCount: previous,
           currentCount: currentCount,
-          directUrl: _buildDirectUrl(settings.baseUrl, query.directUrl),
+          directUrl: RedmineApiService.absoluteUrl(settings.baseUrl, query.directUrl),
           createdAt: now,
         );
 
@@ -243,16 +243,5 @@ class MonitorService {
   String _weekdaysLabel(List<int> days) {
     if (days.isEmpty) return '—';
     return days.map((d) => _dayNames[(d - 1).clamp(0, 6)]).join(', ');
-  }
-
-  String _buildDirectUrl(String baseUrl, String directUrl) {
-    if (directUrl.startsWith('http://') || directUrl.startsWith('https://')) {
-      return directUrl;
-    }
-    final normalizedBase = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-    final normalizedPath = directUrl.startsWith('/') ? directUrl : '/$directUrl';
-    return '$normalizedBase$normalizedPath';
   }
 }

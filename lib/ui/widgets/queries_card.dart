@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/monitored_query.dart';
 import '../../state/app_state.dart';
 import '../../services/theme_service.dart';
+import '../ui_utils.dart';
 import 'query_form_dialog.dart';
 
 class QueriesCard extends StatefulWidget {
@@ -156,7 +156,7 @@ class _QueryTile extends StatelessWidget {
                     const Icon(Icons.schedule_outlined, size: 13, color: AppColors.warmGray500),
                     const SizedBox(width: 4),
                     Text(
-                      'Última verificação: ${_fmtDate(query.lastCheckedAt)}',
+                      'Última verificação: ${fmtDateTime(query.lastCheckedAt)}',
                       style: AppText.microLabel(dark: dark),
                     ),
                   ],
@@ -192,7 +192,7 @@ class _QueryTile extends StatelessWidget {
                 Tooltip(
                   message: 'Abrir consulta no Redmine',
                   child: InkWell(
-                    onTap: () => _openLink(context, query.directUrl),
+                    onTap: () => openRedmineLink(context, query.directUrl),
                     borderRadius: BorderRadius.circular(AppRadius.micro),
                     child: const Padding(
                       padding: EdgeInsets.all(6.0),
@@ -291,37 +291,6 @@ class _QueryTile extends StatelessWidget {
     }
   }
 
-  Future<void> _openLink(BuildContext context, String link) async {
-    final baseUrl = context.read<AppState>().settings.baseUrl;
-    final fullLink = _buildFullUrl(baseUrl, link);
-    final uri = Uri.tryParse(fullLink);
-    if (uri == null || !uri.hasScheme) return;
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível abrir o link.')),
-      );
-    }
-  }
-
-  String _buildFullUrl(String baseUrl, String link) {
-    if (link.startsWith('http://') || link.startsWith('https://')) return link;
-    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-    final path = link.startsWith('/') ? link : '/$link';
-    return '$base$path';
-  }
-
-  String _fmtDate(DateTime? date) {
-    if (date == null) return '-';
-    final local = date.toLocal();
-    final y = local.year.toString().padLeft(4, '0');
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    final h = local.hour.toString().padLeft(2, '0');
-    final min = local.minute.toString().padLeft(2, '0');
-    final sec = local.second.toString().padLeft(2, '0');
-    return '$d-$m-$y $h:$min:$sec';
-  }
 }
 
 enum _QueryAction { runNow, toggle, edit, duplicate, delete }

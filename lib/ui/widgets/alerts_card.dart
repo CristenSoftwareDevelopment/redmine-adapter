@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/alert_event.dart';
 import '../../services/notifications/notification_template_service.dart';
 import '../../state/app_state.dart';
 import '../../services/theme_service.dart';
+import '../ui_utils.dart';
 
 class AlertsCard extends StatelessWidget {
   const AlertsCard({super.key});
@@ -143,7 +143,7 @@ class _AlertTile extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        _fmtDate(alert.createdAt),
+                        fmtDateTime(alert.createdAt),
                         style: AppText.microLabel(dark: dark),
                       ),
                     ],
@@ -157,7 +157,7 @@ class _AlertTile extends StatelessWidget {
                 _ActionIcon(
                   tooltip: 'Abrir no Redmine',
                   icon: Icons.open_in_new,
-                  onTap: () => _openLink(context, alert.directUrl),
+                  onTap: () => openRedmineLink(context, alert.directUrl),
                 ),
                 if (!alert.isRead) ...[
                   const SizedBox(height: 4),
@@ -181,36 +181,6 @@ class _AlertTile extends StatelessWidget {
     );
   }
 
-  Future<void> _openLink(BuildContext context, String link) async {
-    final baseUrl = context.read<AppState>().settings.baseUrl;
-    final fullLink = _buildFullUrl(baseUrl, link);
-    final uri = Uri.tryParse(fullLink);
-    if (uri == null || !uri.hasScheme) return;
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível abrir o link.')),
-      );
-    }
-  }
-
-  String _buildFullUrl(String baseUrl, String link) {
-    if (link.startsWith('http://') || link.startsWith('https://')) return link;
-    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-    final path = link.startsWith('/') ? link : '/$link';
-    return '$base$path';
-  }
-
-  String _fmtDate(DateTime date) {
-    final local = date.toLocal();
-    final y = local.year.toString().padLeft(4, '0');
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    final h = local.hour.toString().padLeft(2, '0');
-    final min = local.minute.toString().padLeft(2, '0');
-    final sec = local.second.toString().padLeft(2, '0');
-    return '$d-$m-$y $h:$min:$sec';
-  }
 }
 
 class _ActionIcon extends StatelessWidget {

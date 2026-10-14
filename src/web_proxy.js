@@ -55,14 +55,25 @@ async function handleFetch(req, res) {
     return;
   }
 
+  const method = typeof parsed.method === 'string' ? parsed.method.toUpperCase() : 'GET';
+  if (method !== 'GET' && method !== 'PUT') {
+    sendJson(res, 400, { error: 'Campo method invalido (GET ou PUT)' });
+    return;
+  }
+
+  const headers = {
+    'X-Redmine-API-Key': apiKey,
+    'Accept': 'application/json',
+  };
+  let requestBody;
+  if (parsed.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    requestBody = JSON.stringify(parsed.body);
+  }
+
   let response;
   try {
-    response = await fetch(targetUrl, {
-      headers: {
-        'X-Redmine-API-Key': apiKey,
-        'Accept': 'application/json',
-      },
-    });
+    response = await fetch(targetUrl, { method, headers, body: requestBody });
   } catch (error) {
     sendJson(res, 502, { error: `Falha ao acessar Redmine: ${error.message}` });
     return;

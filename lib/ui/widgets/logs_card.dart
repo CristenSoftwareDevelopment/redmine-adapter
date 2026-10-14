@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../models/monitor_log.dart';
 import '../../state/app_state.dart';
 import '../../services/theme_service.dart';
+import '../ui_utils.dart';
 
 class LogsCard extends StatefulWidget {
   const LogsCard({super.key});
@@ -185,7 +186,7 @@ class _LogTile extends StatelessWidget {
                     ),
                     const SizedBox(width: Sp.s8),
                     Text(
-                      _fmtDate(log.createdAt),
+                      fmtDateTime(log.createdAt),
                       style: AppText.microLabel(dark: dark),
                     ),
                   ],
@@ -290,14 +291,4 @@ class _LogTile extends StatelessWidget {
     }
   }
 
-  String _fmtDate(DateTime date) {
-    final local = date.toLocal();
-    final y = local.year.toString().padLeft(4, '0');
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    final h = local.hour.toString().padLeft(2, '0');
-    final min = local.minute.toString().padLeft(2, '0');
-    final sec = local.second.toString().padLeft(2, '0');
-    return '$d-$m-$y $h:$min:$sec';
-  }
 }

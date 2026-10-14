@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/query_health.dart';
 import '../../state/app_state.dart';
 import '../../services/theme_service.dart';
+import '../ui_utils.dart';
 
 class MonitoringHealthCard extends StatelessWidget {
   const MonitoringHealthCard({super.key});
@@ -100,7 +101,7 @@ class _HealthTile extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Última execução: ${_fmtDate(item.lastCheckedAt)} \u2022 Último total: ${item.lastCount ?? '-'}',
+                              'Última execução: ${fmtDateTime(item.lastCheckedAt)} \u2022 Último total: ${item.lastCount ?? '-'}',
                               style: AppText.microLabel(dark: dark),
                             ),
                             if (item.lastMessage != null) ...[
@@ -141,17 +142,4 @@ class _HealthTile extends StatelessWidget {
     }
   }
 
-  String _fmtDate(DateTime? date) {
-    if (date == null) {
-      return '-';
-    }
-    final local = date.toLocal();
-    final y = local.year.toString().padLeft(4, '0');
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    final h = local.hour.toString().padLeft(2, '0');
-    final min = local.minute.toString().padLeft(2, '0');
-    final sec = local.second.toString().padLeft(2, '0');
-    return '$d-$m-$y $h:$min:$sec';
-  }
 }

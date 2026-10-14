@@ -224,6 +224,23 @@ class DatabaseService {
           column: 'is_read',
           definition: 'INTEGER NOT NULL DEFAULT 0',
         );
+        for (final (table, column, definition) in const [
+          ('queries', 'pinned', 'INTEGER NOT NULL DEFAULT 0'),
+          ('queries', 'alert_rules', 'TEXT'),
+          ('queries', 'last_error', 'TEXT'),
+          ('queries', 'last_error_at', 'TEXT'),
+          ('alerts', 'title', 'TEXT'),
+          ('alerts', 'body', 'TEXT'),
+        ]) {
+          await _ensureColumn(database, table: table, column: column, definition: definition);
+        }
+        await database.execute('''
+          CREATE TABLE IF NOT EXISTS teams (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            members TEXT NOT NULL DEFAULT '[]'
+          )
+        ''');
       },
     );
   }
@@ -276,7 +293,11 @@ class DatabaseService {
         notification_body_template TEXT,
         schedule_weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5',
         schedule_start_hour INTEGER NOT NULL DEFAULT 8,
-        schedule_end_hour INTEGER NOT NULL DEFAULT 18
+        schedule_end_hour INTEGER NOT NULL DEFAULT 18,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        alert_rules TEXT,
+        last_error TEXT,
+        last_error_at TEXT
       )
     ''');
 
@@ -289,7 +310,9 @@ class DatabaseService {
         current_count INTEGER NOT NULL,
         direct_url TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        is_read INTEGER NOT NULL DEFAULT 0
+        is_read INTEGER NOT NULL DEFAULT 0,
+        title TEXT,
+        body TEXT
       )
     ''');
   }
