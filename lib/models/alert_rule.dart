@@ -102,5 +102,4 @@ class AlertRule {
       );
 }
 
-String? _blankToNull(String? value) =>
-    value == null || value.trim().isEmpty ? null : value;
+String? _blankToNull(String? value) => value == null || value.trim().isEmpty ? null : value;

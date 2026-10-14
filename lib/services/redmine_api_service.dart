@@ -106,6 +106,27 @@ class RedmineApiService {
     return items;
   }
 
+  /// Saved issue queries visible to the user, labelled with their project.
+  Future<List<SavedQuery>> listSavedQueries(AppSettings settings) async {
+    final [queries, projects] = await Future.wait([
+      getAllPages(settings, '/queries.json', 'queries'),
+      getAllPages(settings, '/projects.json', 'projects', cap: 2000),
+    ]);
+    final projectNames = {
+      for (final p in projects) p['id'] as int: p['name'] as String,
+    };
+    return [
+      for (final q in queries)
+        SavedQuery(
+          id: q['id'] as int,
+          name: q['name'] as String,
+          projectId: q['project_id'] as int?,
+          projectName: projectNames[q['project_id']],
+          isPublic: q['is_public'] == true,
+        ),
+    ]..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+  }
+
   void _ensureOk(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     if (response.statusCode == 422) {
@@ -116,7 +137,8 @@ class RedmineApiService {
       if (errors is List) throw Exception(errors.join('; '));
     }
     final body = response.body;
-    final extra = body.isEmpty ? '' : ' - ${body.length > 160 ? '${body.substring(0, 160)}...' : body}';
+    final extra =
+        body.isEmpty ? '' : ' - ${body.length > 160 ? '${body.substring(0, 160)}...' : body}';
     throw Exception('HTTP ${response.statusCode}$extra');
   }
 
@@ -169,7 +191,8 @@ class RedmineApiService {
   }) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final body = response.body;
-      final extra = body.isEmpty ? '' : ' - ${body.length > 160 ? '${body.substring(0, 160)}...' : body}';
+      final extra =
+          body.isEmpty ? '' : ' - ${body.length > 160 ? '${body.substring(0, 160)}...' : body}';
       throw Exception('HTTP ${response.statusCode} ao consultar ${query.name}$extra');
     }
     dynamic decoded;
@@ -261,9 +284,8 @@ class RedmineApiService {
     required String endpoint,
   }) {
     final uri = Uri.parse(absoluteUrl(baseUrl, endpoint));
-    final withLimit = uri.queryParameters.containsKey('limit')
-        ? uri
-        : withParams(uri, {'limit': '1'});
+    final withLimit =
+        uri.queryParameters.containsKey('limit') ? uri : withParams(uri, {'limit': '1'});
     return withLimit.replace(path: _ensureJsonPath(uri.path));
   }
 
@@ -341,6 +363,32 @@ class RedmineApiService {
 
     return current;
   }
+}
+
+class SavedQuery {
+  SavedQuery({
+    required this.id,
+    required this.name,
+    this.projectId,
+    this.projectName,
+    this.isPublic = false,
+  });
+
+  final int id;
+  final String name;
+  final int? projectId;
+  final String? projectName;
+  final bool isPublic;
+
+  String get label => projectName == null ? name : '$projectName › $name';
+
+  String get _issuesPath => projectId == null ? '/issues' : '/projects/$projectId/issues';
+  String get endpoint => '$_issuesPath.json?query_id=$id';
+  String get directUrl => '$_issuesPath?query_id=$id';
+
+  /// `query_id` of a stored endpoint, or null for filter-only URLs.
+  static int? idFromEndpoint(String? endpoint) =>
+      int.tryParse(Uri.tryParse(endpoint ?? '')?.queryParameters['query_id'] ?? '');
 }
 
 class FetchCountResult {

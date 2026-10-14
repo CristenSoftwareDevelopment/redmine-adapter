@@ -1,11 +1,16 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 import 'package:redmine_monitor_flutter/models/alert_event.dart';
 import 'package:redmine_monitor_flutter/models/alert_rule.dart';
 import 'package:redmine_monitor_flutter/models/app_settings.dart';
 import 'package:redmine_monitor_flutter/models/monitored_query.dart';
 import 'package:redmine_monitor_flutter/services/notifications/notification_template_service.dart';
+import 'package:redmine_monitor_flutter/services/database_service.dart';
 import 'package:redmine_monitor_flutter/services/redmine_api_service.dart';
+import 'package:redmine_monitor_flutter/state/app_state.dart';
+import 'package:redmine_monitor_flutter/ui/widgets/query_form_dialog.dart';
 
 void main() {
   test('Notification template renders placeholders', () {
@@ -119,5 +124,55 @@ void main() {
     );
     expect(service.resolve(settings, const AlertRule(), alert(1, 2)), ('UP 2', 'GB'));
     expect(service.resolve(settings, null, alert(2, 1)), ('G Fila', 'GB'));
+  });
+
+  testWidgets('query form falls back to manual URL and saves extra rules', (tester) async {
+    MonitoredQuery? saved;
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AppState(databaseService: DatabaseService.instance),
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => saved = await showDialog<MonitoredQuery>(
+                context: context,
+                builder: (_) => const QueryFormDialog(),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // No Redmine configured: the saved-query list fails and the form goes manual.
+    expect(find.textContaining('Não foi possível carregar'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'URL da consulta no Redmine'),
+      '/issues?assigned_to_id=me',
+    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Nome'), 'Fila do dev');
+
+    await tester.ensureVisible(find.text('Adicionar regra'));
+    await tester.tap(find.text('Adicionar regra'));
+    await tester.pumpAndSettle();
+    final newRule = find.byType(DropdownButtonFormField<String>).last;
+    await tester.ensureVisible(newRule);
+    await tester.pumpAndSettle();
+    await tester.tap(newRule);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ficou igual a').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'N'), '1');
+
+    await tester.ensureVisible(find.text('Salvar'));
+    await tester.tap(find.text('Salvar'));
+    await tester.pumpAndSettle();
+
+    expect(saved?.name, 'Fila do dev');
+    expect(saved?.endpoint, '/issues.json?assigned_to_id=me');
+    expect(saved?.alertRules.map((r) => r.label), ['↕ Qualquer', '= 1']);
   });
 }

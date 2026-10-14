@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../models/alert_rule.dart';
 import '../../models/monitored_query.dart';
+import '../../services/redmine_api_service.dart';
 import '../../services/theme_service.dart';
+import '../../state/app_state.dart';
 
 class QueryFormDialog extends StatefulWidget {
   const QueryFormDialog({
@@ -25,6 +28,13 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
   late final List<_RuleDraft> _rules;
   bool _enabled = true;
   bool _showAdvanced = false;
+
+  // Source of the query: a saved Redmine query (picker) or a pasted URL.
+  late bool _manualUrl;
+  List<SavedQuery>? _saved;
+  String? _savedError;
+  SavedQuery? _selected;
+  String? _pickerError;
   late List<int> _scheduleWeekdays;
   late int _scheduleStartHour;
   late int _scheduleEndHour;
@@ -46,6 +56,8 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     _scheduleWeekdays = List<int>.from(item?.scheduleWeekdays ?? defaultScheduleWeekdays);
     _scheduleStartHour = item?.scheduleStartHour ?? defaultScheduleStartHour;
     _scheduleEndHour = item?.scheduleEndHour ?? defaultScheduleEndHour;
+    _manualUrl = item != null && SavedQuery.idFromEndpoint(item.endpoint) == null;
+    _loadSavedQueries();
   }
 
   @override
@@ -110,32 +122,59 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: false,
+                            icon: Icon(Icons.bookmark_outline, size: 16),
+                            label: Text('Consulta salva'),
+                          ),
+                          ButtonSegment(
+                            value: true,
+                            icon: Icon(Icons.link, size: 16),
+                            label: Text('URL manual'),
+                          ),
+                        ],
+                        selected: {_manualUrl},
+                        onSelectionChanged: (v) => setState(() => _manualUrl = v.first),
+                      ),
+                      const SizedBox(height: Sp.s12),
+                      if (!_manualUrl) _buildSavedPicker(dark),
+                      if (_savedError != null) ...[
+                        Text(
+                          'Não foi possível carregar as consultas salvas: $_savedError',
+                          style: AppText.microLabel(dark: dark).copyWith(color: AppColors.orange),
+                        ),
+                        const SizedBox(height: Sp.s8),
+                      ],
+                      if (_manualUrl) ...[
+                        TextFormField(
+                          controller: _queryUrl,
+                          decoration: const InputDecoration(
+                            labelText: 'URL da consulta no Redmine',
+                            hintText: 'https://seu-redmine.com/projects/x/issues?query_id=123',
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) return 'Obrigatório';
+                            final parsed = _parseUserUrl(value.trim());
+                            if (parsed == null) {
+                              return 'Informe uma URL válida (com /issues e query_id)';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: Sp.s4),
+                        Text(
+                          'Cole a URL de uma lista de tarefas do Redmine (com filtros ou query_id). O app gera o endpoint /issues.json automaticamente.',
+                          style: AppText.microLabel(dark: dark),
+                        ),
+                      ],
+                      const SizedBox(height: Sp.s12),
                       TextFormField(
                         controller: _name,
                         decoration: const InputDecoration(labelText: 'Nome'),
                         validator: (value) =>
                             value == null || value.trim().isEmpty ? 'Obrigatório' : null,
-                      ),
-                      const SizedBox(height: Sp.s12),
-                      TextFormField(
-                        controller: _queryUrl,
-                        decoration: const InputDecoration(
-                          labelText: 'URL da consulta no Redmine',
-                          hintText: 'https://seu-redmine.com/projects/x/issues?query_id=123',
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) return 'Obrigatório';
-                          final parsed = _parseUserUrl(value.trim());
-                          if (parsed == null) {
-                            return 'Informe uma URL válida (com /issues e query_id)';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: Sp.s4),
-                      Text(
-                        'Cole a URL da página da consulta salva. O app gera o endpoint /issues.json automaticamente.',
-                        style: AppText.microLabel(dark: dark),
                       ),
                       const SizedBox(height: Sp.s16),
                       Align(
@@ -230,12 +269,9 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                         startHour: _scheduleStartHour,
                         endHour: _scheduleEndHour,
                         dark: dark,
-                        onWeekdaysChanged: (days) =>
-                            setState(() => _scheduleWeekdays = days),
-                        onStartHourChanged: (h) =>
-                            setState(() => _scheduleStartHour = h),
-                        onEndHourChanged: (h) =>
-                            setState(() => _scheduleEndHour = h),
+                        onWeekdaysChanged: (days) => setState(() => _scheduleWeekdays = days),
+                        onStartHourChanged: (h) => setState(() => _scheduleStartHour = h),
+                        onEndHourChanged: (h) => setState(() => _scheduleEndHour = h),
                       ),
 
                       Divider(
@@ -371,6 +407,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                 child: DropdownButtonFormField<String>(
                   initialValue: rule.op,
                   isDense: true,
+                  isExpanded: true,
                   decoration: const InputDecoration(isDense: true),
                   items: [
                     for (final e in alertRuleOps.entries)
@@ -445,10 +482,88 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     );
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _loadSavedQueries() async {
+    try {
+      final saved = await RedmineApiService().listSavedQueries(context.read<AppState>().settings);
+      if (!mounted) return;
+      final currentId = SavedQuery.idFromEndpoint(widget.initial?.endpoint);
+      setState(() {
+        _saved = saved;
+        _selected = saved.where((q) => q.id == currentId).firstOrNull;
+        // Editing a query_id the user can no longer see: keep the raw URL.
+        if (currentId != null && _selected == null) _manualUrl = true;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _savedError = '$error'.replaceFirst('Exception: ', '');
+        _manualUrl = true;
+      });
+    }
+  }
 
-    final resolved = _resolveUrls(_queryUrl.text.trim());
+  Widget _buildSavedPicker(bool dark) {
+    final saved = _saved;
+    if (saved == null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: Sp.s8),
+        child: Row(
+          children: [
+            const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+            const SizedBox(width: Sp.s8),
+            Text('Carregando consultas do Redmine…', style: AppText.caption(dark: dark)),
+          ],
+        ),
+      );
+    }
+    return DropdownMenu<SavedQuery>(
+      initialSelection: _selected,
+      expandedInsets: EdgeInsets.zero,
+      enableFilter: true,
+      requestFocusOnTap: true,
+      menuHeight: 320,
+      label: const Text('Consulta salva no Redmine'),
+      hintText: 'Digite para buscar…',
+      errorText: _pickerError,
+      leadingIcon: const Icon(Icons.search, size: 18),
+      dropdownMenuEntries: [
+        for (final q in saved)
+          DropdownMenuEntry(
+            value: q,
+            label: q.label,
+            trailingIcon: q.isPublic
+                ? null
+                : const Tooltip(
+                    message: 'Consulta privada',
+                    child: Icon(Icons.lock_outline, size: 14),
+                  ),
+          ),
+      ],
+      onSelected: (q) => setState(() {
+        _selected = q;
+        _pickerError = null;
+        if (q != null && _name.text.trim().isEmpty) _name.text = q.name;
+      }),
+    );
+  }
+
+  void _submit() {
+    final missingPick = !_manualUrl && _selected == null;
+    setState(() => _pickerError = missingPick ? 'Selecione uma consulta' : null);
+    if (!_formKey.currentState!.validate() || missingPick) return;
+
+    final _ResolvedUrls? resolved;
+    if (_manualUrl) {
+      resolved = _resolveUrls(_queryUrl.text.trim());
+    } else {
+      final initial = widget.initial;
+      // Same saved query as before: keep the stored URL (may carry extra params).
+      final unchanged =
+          initial != null && SavedQuery.idFromEndpoint(initial.endpoint) == _selected!.id;
+      resolved = unchanged
+          ? _ResolvedUrls(endpoint: initial.endpoint, directUrl: initial.directUrl)
+          : _ResolvedUrls(endpoint: _selected!.endpoint, directUrl: _selected!.directUrl);
+    }
     if (resolved == null) return;
 
     final result = MonitoredQuery(
@@ -633,10 +748,12 @@ class _ScheduleSection extends StatelessWidget {
                   labelText: 'Início',
                   isDense: true,
                 ),
-                items: List.generate(24, (h) => DropdownMenuItem(
-                  value: h,
-                  child: Text('${h.toString().padLeft(2, '0')}:00'),
-                )),
+                items: List.generate(
+                    24,
+                    (h) => DropdownMenuItem(
+                          value: h,
+                          child: Text('${h.toString().padLeft(2, '0')}:00'),
+                        )),
                 onChanged: (v) => onStartHourChanged(v ?? defaultScheduleStartHour),
               ),
             ),
@@ -648,10 +765,12 @@ class _ScheduleSection extends StatelessWidget {
                   labelText: 'Fim',
                   isDense: true,
                 ),
-                items: List.generate(24, (h) => DropdownMenuItem(
-                  value: h,
-                  child: Text('${h.toString().padLeft(2, '0')}:00'),
-                )),
+                items: List.generate(
+                    24,
+                    (h) => DropdownMenuItem(
+                          value: h,
+                          child: Text('${h.toString().padLeft(2, '0')}:00'),
+                        )),
                 onChanged: (v) => onEndHourChanged(v ?? defaultScheduleEndHour),
               ),
             ),
@@ -695,15 +814,10 @@ class _DayChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = selected
-        ? AppColors.blue
-        : (dark ? AppColors.darkCard : AppColors.warmWhite);
-    final fg = selected
-        ? AppColors.white
-        : (dark ? AppColors.darkMuted : AppColors.warmDark);
-    final border = selected
-        ? AppColors.blue
-        : (dark ? AppColors.darkBorder : AppColors.borderLight);
+    final bg = selected ? AppColors.blue : (dark ? AppColors.darkCard : AppColors.warmWhite);
+    final fg = selected ? AppColors.white : (dark ? AppColors.darkMuted : AppColors.warmDark);
+    final border =
+        selected ? AppColors.blue : (dark ? AppColors.darkBorder : AppColors.borderLight);
 
     return GestureDetector(
       onTap: onTap,
