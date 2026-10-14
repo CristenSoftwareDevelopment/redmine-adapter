@@ -936,16 +936,29 @@ class _TeamReportState extends State<_TeamReport> {
                           UserAvatar(name: e.userName, size: 22),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: Text(
-                              [
-                                fmtDate(_ymd(e.day)).replaceAll('-', '/'),
-                                _byActivity
-                                    ? (e.issueId == null
-                                        ? 'Sem tarefa'
-                                        : '#${e.issueId} ${_subjects[e.issueId] ?? ''}')
-                                    : e.activity,
-                                if (e.comments.isNotEmpty) e.comments,
-                              ].join(' · '),
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: '${e.userName} · ',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.text(dark: dark),
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: [
+                                      fmtDate(_ymd(e.day)).replaceAll('-', '/'),
+                                      _byActivity
+                                          ? (e.issueId == null
+                                              ? 'Sem tarefa'
+                                              : '#${e.issueId} ${_subjects[e.issueId] ?? ''}')
+                                          : e.activity,
+                                      if (e.comments.isNotEmpty) e.comments,
+                                    ].join(' · '),
+                                  ),
+                                ],
+                              ),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: AppText.microLabel(dark: dark),

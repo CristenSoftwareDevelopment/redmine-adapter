@@ -155,31 +155,38 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
         '${a['filename']}': '${a['content_url']}',
     };
     final body = AppText.body(dark: dark).copyWith(height: 1.5);
+    final heading = AppText.bodySemibold(dark: dark).copyWith(fontWeight: FontWeight.w700);
+    final well = AppColors.well(dark: dark);
     return MarkdownBody(
       data: text,
       selectable: true,
+      // Blocks (code, quotes) take the full width, like in Redmine.
+      fitContent: false,
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
         p: body,
         listBullet: body,
         tableBody: body,
-        h1: AppText.cardTitle(dark: dark),
-        h2: AppText.bodyLarge(dark: dark).copyWith(fontWeight: FontWeight.w600),
-        h3: AppText.bodySemibold(dark: dark),
-        h4: AppText.bodySemibold(dark: dark),
+        blockSpacing: 10,
+        h1: heading.copyWith(fontSize: 20, height: 1.4),
+        h2: heading.copyWith(fontSize: 17, height: 1.4),
+        h3: heading.copyWith(fontSize: 15.5, height: 1.4),
+        h4: heading,
+        h1Padding: const EdgeInsets.only(top: 12),
+        h2Padding: const EdgeInsets.only(top: 10),
+        h3Padding: const EdgeInsets.only(top: 8),
         a: body.copyWith(color: AppColors.accent(dark: dark)),
-        code: body.copyWith(
-          fontFamily: 'monospace',
-          fontSize: 13,
-          backgroundColor: AppColors.border(dark: dark),
-        ),
+        code: AppText.mono(dark: dark).copyWith(backgroundColor: well),
+        codeblockPadding: const EdgeInsets.all(12),
         codeblockDecoration: BoxDecoration(
-          color: AppColors.border(dark: dark),
-          borderRadius: BorderRadius.circular(AppRadius.micro),
+          color: well,
+          border: Border.all(color: AppColors.border(dark: dark)),
+          borderRadius: BorderRadius.circular(AppRadius.standard),
         ),
         checkbox: body.copyWith(color: AppColors.mutedText(dark: dark)),
         horizontalRuleDecoration: BoxDecoration(
           border: Border(top: BorderSide(color: AppColors.border(dark: dark))),
         ),
+        blockquotePadding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
         blockquoteDecoration: BoxDecoration(
           border: Border(left: BorderSide(color: AppColors.border(dark: dark), width: 3)),
         ),

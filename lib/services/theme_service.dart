@@ -200,6 +200,16 @@ class AppText {
   static TextStyle microLabel({bool dark = false}) =>
       _t(12, FontWeight.w400, AppColors.mutedText(dark: dark), height: 1.6);
 
+  /// Monospace for code. 'monospace' alone is not a real family on macOS and
+  /// falls back to the proportional font, so name real ones per platform.
+  static TextStyle mono({bool dark = false}) => TextStyle(
+        fontFamily: 'Menlo',
+        fontFamilyFallback: const ['SF Mono', 'Consolas', 'Monaco', 'Courier New', 'monospace'],
+        fontSize: 12.5,
+        height: 1.5,
+        color: AppColors.sectionText(dark: dark),
+      );
+
   /// 10px spaced uppercase label (sidebar sections).
   static TextStyle sectionLabel({bool dark = false}) =>
       _t(10, FontWeight.w600, AppColors.mutedText(dark: dark), height: 1.3, spacing: 1.5);
@@ -258,6 +268,10 @@ ThemeData buildAppTheme({required bool dark}) {
       onPrimary: onAccent,
       secondary: accent,
       onSecondary: onAccent,
+      // Without these, M3 falls back to `secondary` and progress tracks become
+      // the same color as the bar (no visible motion).
+      secondaryContainer: AppColors.accentSoft(dark: dark),
+      onSecondaryContainer: accent,
       surface: panel,
       onSurface: text,
       onSurfaceVariant: muted,
@@ -267,6 +281,11 @@ ThemeData buildAppTheme({required bool dark}) {
       surfaceContainerHighest: AppColors.field(dark: dark),
     ),
     dividerTheme: DividerThemeData(color: border, thickness: 1, space: 1),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: accent,
+      linearTrackColor: border,
+      circularTrackColor: Colors.transparent,
+    ),
     cardTheme: CardThemeData(
       color: panel,
       surfaceTintColor: Colors.transparent,

@@ -81,6 +81,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     const gap = SizedBox(height: 17);
 
     return AppDialog(
+      width: MediaQuery.sizeOf(context).width * 0.85,
       title: Text(widget.initial == null ? 'Nova consulta' : 'Editar consulta'),
       footer: [
         OutlinedButton(
@@ -95,123 +96,143 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
       ],
       body: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: AppTabs<bool>(
-                tabs: const [
-                  (false, 'Consulta salva', Icons.push_pin_outlined),
-                  (true, 'URL manual', Icons.link),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final details = Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: AppTabs<bool>(
+                    tabs: const [
+                      (false, 'Consulta salva', Icons.push_pin_outlined),
+                      (true, 'URL manual', Icons.link),
+                    ],
+                    selected: _manualUrl,
+                    onChanged: (v) => setState(() => _manualUrl = v),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (!_manualUrl) _buildSavedPicker(dark),
+                if (_savedError != null) ...[
+                  Text(
+                    'Não foi possível carregar as consultas salvas: $_savedError',
+                    style: AppText.microLabel(dark: dark)
+                        .copyWith(color: AppColors.danger(dark: dark)),
+                  ),
+                  const SizedBox(height: 8),
                 ],
-                selected: _manualUrl,
-                onChanged: (v) => setState(() => _manualUrl = v),
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (!_manualUrl) _buildSavedPicker(dark),
-            if (_savedError != null) ...[
-              Text(
-                'Não foi possível carregar as consultas salvas: $_savedError',
-                style: AppText.microLabel(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
-              ),
-              const SizedBox(height: 8),
-            ],
-            if (_manualUrl)
-              LabeledField(
-                label: 'URL da consulta no Redmine',
-                child: TextFormField(
-                  controller: _queryUrl,
-                  decoration: const InputDecoration(
-                    hintText: 'https://seu-redmine.com/projects/x/issues?query_id=123',
-                    helperText:
-                        'Inclua os filtros ou o query_id da lista de tarefas. O app gera o endpoint /issues.json.',
-                    helperMaxLines: 2,
+                if (_manualUrl)
+                  LabeledField(
+                    label: 'URL da consulta no Redmine',
+                    child: TextFormField(
+                      controller: _queryUrl,
+                      decoration: const InputDecoration(
+                        hintText: 'https://seu-redmine.com/projects/x/issues?query_id=123',
+                        helperText:
+                            'Inclua os filtros ou o query_id da lista de tarefas. O app gera o endpoint /issues.json.',
+                        helperMaxLines: 2,
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) return 'Obrigatório';
+                        final parsed = _parseUserUrl(value.trim());
+                        if (parsed == null) {
+                          return 'Informe uma URL válida (com /issues e query_id)';
+                        }
+                        return null;
+                      },
+                    ),
                   ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) return 'Obrigatório';
-                    final parsed = _parseUserUrl(value.trim());
-                    if (parsed == null) {
-                      return 'Informe uma URL válida (com /issues e query_id)';
-                    }
-                    return null;
-                  },
-                ),
-              ),
-            gap,
-            LabeledField(
-              label: 'Nome da consulta',
-              child: TextFormField(
-                controller: _name,
-                validator: (value) => value == null || value.trim().isEmpty ? 'Obrigatório' : null,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _SwitchLine(
-              label: 'Consulta ativa',
-              value: _enabled,
-              onChanged: (v) => setState(() => _enabled = v),
-            ),
-            _SwitchLine(
-              label: 'Fixar no menu como board',
-              value: _pinned,
-              onChanged: (v) => setState(() => _pinned = v),
-            ),
-            const Divider(height: 46),
-            _ScheduleSection(
-              weekdays: _scheduleWeekdays,
-              startHour: _scheduleStartHour,
-              endHour: _scheduleEndHour,
-              dark: dark,
-              onWeekdaysChanged: (days) => setState(() => _scheduleWeekdays = days),
-              onStartHourChanged: (h) => setState(() => _scheduleStartHour = h),
-              onEndHourChanged: (h) => setState(() => _scheduleEndHour = h),
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                onPressed: () => setState(() => _showAdvanced = !_showAdvanced),
-                icon: Icon(_showAdvanced ? Icons.expand_less : Icons.expand_more, size: 18),
-                label: const Text('Opções avançadas'),
-              ),
-            ),
-            if (_showAdvanced) ...[
-              const SizedBox(height: 8),
-              LabeledField(
-                label: 'Intervalo de verificação (segundos)',
-                child: TextFormField(
-                  controller: _pollSeconds,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    hintText: '$defaultPollSeconds',
-                    helperText: 'Mínimo de $minPollSeconds segundos.',
+                gap,
+                LabeledField(
+                  label: 'Nome da consulta',
+                  child: TextFormField(
+                    controller: _name,
+                    validator: (value) =>
+                        value == null || value.trim().isEmpty ? 'Obrigatório' : null,
                   ),
-                  validator: (value) {
-                    final parsed = int.tryParse(value?.trim() ?? '');
-                    if (parsed == null) return 'Obrigatório';
-                    if (parsed < minPollSeconds) return 'Mínimo $minPollSeconds segundos';
-                    return null;
-                  },
                 ),
-              ),
-              gap,
-              LabeledField(
-                label: 'Caminho da contagem no JSON',
-                child: TextFormField(
-                  controller: _countPath,
-                  decoration: const InputDecoration(hintText: 'total_count'),
-                  validator: (value) =>
-                      value == null || value.trim().isEmpty ? 'Obrigatório' : null,
+                const SizedBox(height: 8),
+                _SwitchLine(
+                  label: 'Consulta ativa',
+                  value: _enabled,
+                  onChanged: (v) => setState(() => _enabled = v),
                 ),
-              ),
-            ],
-            const Divider(height: 46),
-            _buildRules(dark),
-          ],
+                _SwitchLine(
+                  label: 'Fixar no menu como board',
+                  value: _pinned,
+                  onChanged: (v) => setState(() => _pinned = v),
+                ),
+                const Divider(height: 46),
+                _ScheduleSection(
+                  weekdays: _scheduleWeekdays,
+                  startHour: _scheduleStartHour,
+                  endHour: _scheduleEndHour,
+                  dark: dark,
+                  onWeekdaysChanged: (days) => setState(() => _scheduleWeekdays = days),
+                  onStartHourChanged: (h) => setState(() => _scheduleStartHour = h),
+                  onEndHourChanged: (h) => setState(() => _scheduleEndHour = h),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                    onPressed: () => setState(() => _showAdvanced = !_showAdvanced),
+                    icon: Icon(_showAdvanced ? Icons.expand_less : Icons.expand_more, size: 18),
+                    label: const Text('Opções avançadas'),
+                  ),
+                ),
+                if (_showAdvanced) ...[
+                  const SizedBox(height: 8),
+                  LabeledField(
+                    label: 'Intervalo de verificação (segundos)',
+                    child: TextFormField(
+                      controller: _pollSeconds,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        hintText: '$defaultPollSeconds',
+                        helperText: 'Mínimo de $minPollSeconds segundos.',
+                      ),
+                      validator: (value) {
+                        final parsed = int.tryParse(value?.trim() ?? '');
+                        if (parsed == null) return 'Obrigatório';
+                        if (parsed < minPollSeconds) return 'Mínimo $minPollSeconds segundos';
+                        return null;
+                      },
+                    ),
+                  ),
+                  gap,
+                  LabeledField(
+                    label: 'Caminho da contagem no JSON',
+                    child: TextFormField(
+                      controller: _countPath,
+                      decoration: const InputDecoration(hintText: 'total_count'),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty ? 'Obrigatório' : null,
+                    ),
+                  ),
+                ],
+              ],
+            );
+            final rules = _buildRules(dark);
+            // Wide dialog: details and schedule on the left, rules on the right.
+            if (constraints.maxWidth < 900) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [details, const Divider(height: 46), rules],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: details),
+                const SizedBox(width: 40),
+                Expanded(child: rules),
+              ],
+            );
+          },
         ),
       ),
     );

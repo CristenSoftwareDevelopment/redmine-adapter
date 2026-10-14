@@ -178,201 +178,193 @@ class _SettingsCardState extends State<SettingsCard> {
           title: 'Configuração',
           subtitle: 'Conexão, notificações e preferências do monitor.',
         ),
-        Align(
-          alignment: Alignment.topLeft,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 840),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Panel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const PanelHead(
-                          title: Text('Conexão com Redmine'),
-                          subtitle: 'Endereço e chave de API usados pela integração.',
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _field(
-                                'Endereço do Redmine',
-                                _baseUrlController,
-                                hint: 'https://seu-redmine.com',
-                                required: true,
-                              ),
-                              gap,
-                              _field('Chave da API', _apiKeyController,
-                                  obscure: true, required: true),
-                            ],
+        Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const PanelHead(
+                      title: Text('Conexão com Redmine'),
+                      subtitle: 'Endereço e chave de API usados pela integração.',
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _field(
+                            'Endereço do Redmine',
+                            _baseUrlController,
+                            hint: 'https://seu-redmine.com',
+                            required: true,
                           ),
-                        ),
-                      ],
+                          gap,
+                          _field('Chave da API', _apiKeyController, obscure: true, required: true),
+                        ],
+                      ),
                     ),
-                  ),
-                  Panel(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SectionTitle(icon: Icons.notifications_none, text: 'Notificações'),
-                        hint('Template genérico (usado quando não há template específico).'),
-                        _field(
-                          'Título padrão',
-                          _notificationTitleTemplateController,
-                          hint: defaultNotificationTitleTemplate,
-                          required: true,
-                        ),
-                        gap,
-                        _field(
-                          'Corpo padrão',
-                          _notificationBodyTemplateController,
-                          hint: defaultNotificationBodyTemplate,
-                          maxLines: 4,
-                          required: true,
-                        ),
-                        const SizedBox(height: 12),
-                        _testButton(
-                          'Testar template genérico',
-                          _notificationTitleTemplateController,
-                          _notificationBodyTemplateController,
-                          fallback: false,
-                        ),
-                        const Divider(height: 46),
-                        hint('Template para aumento de contagem (opcional).'),
-                        _field(
-                          'Título — somente aumento',
-                          _increaseTitleController,
-                          hint: 'Vazio = template padrão',
-                        ),
-                        gap,
-                        _field(
-                          'Corpo — somente aumento',
-                          _increaseBodyController,
-                          hint: 'Vazio = template padrão',
-                          maxLines: 4,
-                        ),
-                        const SizedBox(height: 12),
-                        _testButton(
-                          'Testar template de aumento',
-                          _increaseTitleController,
-                          _increaseBodyController,
-                        ),
-                        const Divider(height: 46),
-                        hint('Template para diminuição de contagem (opcional).'),
-                        _field(
-                          'Título — somente diminuição',
-                          _decreaseTitleController,
-                          hint: 'Vazio = template padrão',
-                        ),
-                        gap,
-                        _field(
-                          'Corpo — somente diminuição',
-                          _decreaseBodyController,
-                          hint: 'Vazio = template padrão',
-                          maxLines: 4,
-                        ),
-                        const SizedBox(height: 12),
-                        _testButton(
-                          'Testar template de diminuição',
-                          _decreaseTitleController,
-                          _decreaseBodyController,
-                        ),
-                        const SizedBox(height: 20),
-                        const Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            Tag('{queryName}'),
-                            Tag('{previousCount}'),
-                            Tag('{currentCount}'),
-                            Tag('{diff}'),
-                            Tag('{newCount}'),
-                            Tag('{time}'),
-                            Tag('{url}'),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  Panel(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SectionTitle(icon: Icons.palette_outlined, text: 'Aparência'),
-                        LabeledField(
-                          label: 'Tema do aplicativo',
-                          child: SegmentButtons<String>(
-                            segments: const [
-                              ('light', 'Claro', Icons.light_mode_outlined),
-                              ('dark', 'Escuro', Icons.dark_mode_outlined),
-                              ('system', 'Sistema', Icons.brightness_auto_outlined),
-                            ],
-                            selected: _themeMode,
-                            onChanged: (v) => setState(() => _themeMode = v),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Panel(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SectionTitle(icon: Icons.backup_outlined, text: 'Backup'),
-                        hint(
-                            'Copie a configuração, as consultas e os times, ou restaure de um JSON.'),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                await context.read<AppState>().copyBackupToClipboard();
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Backup copiado para a área de transferência.'),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.copy_all_outlined, size: 17),
-                              label: const Text('Copiar backup'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => _showImportBackupDialog(context),
-                              icon: const Icon(Icons.upload_file_outlined, size: 17),
-                              label: const Text('Restaurar backup'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: FilledButton.icon(
-                      onPressed: _saving ? null : () => _save(context),
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check, size: 17),
-                      label: Text(_saving ? 'Salvando…' : 'Salvar configuração'),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+              Panel(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SectionTitle(icon: Icons.notifications_none, text: 'Notificações'),
+                    hint('Template genérico (usado quando não há template específico).'),
+                    _field(
+                      'Título padrão',
+                      _notificationTitleTemplateController,
+                      hint: defaultNotificationTitleTemplate,
+                      required: true,
+                    ),
+                    gap,
+                    _field(
+                      'Corpo padrão',
+                      _notificationBodyTemplateController,
+                      hint: defaultNotificationBodyTemplate,
+                      maxLines: 4,
+                      required: true,
+                    ),
+                    const SizedBox(height: 12),
+                    _testButton(
+                      'Testar template genérico',
+                      _notificationTitleTemplateController,
+                      _notificationBodyTemplateController,
+                      fallback: false,
+                    ),
+                    const Divider(height: 46),
+                    hint('Template para aumento de contagem (opcional).'),
+                    _field(
+                      'Título — somente aumento',
+                      _increaseTitleController,
+                      hint: 'Vazio = template padrão',
+                    ),
+                    gap,
+                    _field(
+                      'Corpo — somente aumento',
+                      _increaseBodyController,
+                      hint: 'Vazio = template padrão',
+                      maxLines: 4,
+                    ),
+                    const SizedBox(height: 12),
+                    _testButton(
+                      'Testar template de aumento',
+                      _increaseTitleController,
+                      _increaseBodyController,
+                    ),
+                    const Divider(height: 46),
+                    hint('Template para diminuição de contagem (opcional).'),
+                    _field(
+                      'Título — somente diminuição',
+                      _decreaseTitleController,
+                      hint: 'Vazio = template padrão',
+                    ),
+                    gap,
+                    _field(
+                      'Corpo — somente diminuição',
+                      _decreaseBodyController,
+                      hint: 'Vazio = template padrão',
+                      maxLines: 4,
+                    ),
+                    const SizedBox(height: 12),
+                    _testButton(
+                      'Testar template de diminuição',
+                      _decreaseTitleController,
+                      _decreaseBodyController,
+                    ),
+                    const SizedBox(height: 20),
+                    const Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        Tag('{queryName}'),
+                        Tag('{previousCount}'),
+                        Tag('{currentCount}'),
+                        Tag('{diff}'),
+                        Tag('{newCount}'),
+                        Tag('{time}'),
+                        Tag('{url}'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Panel(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionTitle(icon: Icons.palette_outlined, text: 'Aparência'),
+                    LabeledField(
+                      label: 'Tema do aplicativo',
+                      child: SegmentButtons<String>(
+                        segments: const [
+                          ('light', 'Claro', Icons.light_mode_outlined),
+                          ('dark', 'Escuro', Icons.dark_mode_outlined),
+                          ('system', 'Sistema', Icons.brightness_auto_outlined),
+                        ],
+                        selected: _themeMode,
+                        onChanged: (v) => setState(() => _themeMode = v),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Panel(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionTitle(icon: Icons.backup_outlined, text: 'Backup'),
+                    hint('Copie a configuração, as consultas e os times, ou restaure de um JSON.'),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            await context.read<AppState>().copyBackupToClipboard();
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Backup copiado para a área de transferência.'),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.copy_all_outlined, size: 17),
+                          label: const Text('Copiar backup'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => _showImportBackupDialog(context),
+                          icon: const Icon(Icons.upload_file_outlined, size: 17),
+                          label: const Text('Restaurar backup'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : () => _save(context),
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check, size: 17),
+                  label: Text(_saving ? 'Salvando…' : 'Salvar configuração'),
+                ),
+              ),
+            ],
           ),
         ),
       ],

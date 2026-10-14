@@ -248,7 +248,7 @@ class _LogRowState extends State<_LogRow> {
                     child: SingleChildScrollView(
                       child: SelectableText(
                         _formattedBody,
-                        style: AppText.microLabel(dark: dark).copyWith(fontFamily: 'monospace'),
+                        style: AppText.mono(dark: dark),
                       ),
                     ),
                   ),
