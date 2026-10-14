@@ -34,6 +34,16 @@ class TimeEntry {
   }
 }
 
+/// Entries whose `spent_on` is within [first]..[last] (inclusive).
+///
+/// Redmine's `from`/`to` filter is shifted by the user's time zone (asking
+/// for the 13th can return the 14th), so callers fetch one extra day on each
+/// side and keep only what really belongs to the range.
+List<TimeEntry> withinDays(Iterable<TimeEntry> entries, DateTime first, DateTime last) => [
+      for (final e in entries)
+        if (!e.day.isBefore(first) && !e.day.isAfter(last)) e,
+    ];
+
 /// Total hours per key, e.g. `sumHours(entries, (e) => (e.userId, e.day))`.
 Map<K, double> sumHours<K>(Iterable<TimeEntry> entries, K Function(TimeEntry) key) {
   final totals = <K, double>{};

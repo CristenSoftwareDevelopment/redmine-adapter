@@ -220,4 +220,15 @@ void main() {
     expect(searchKey('André Ação'), 'andre acao');
     expect(searchKey('André Cristen').contains(searchKey('andre')), true);
   });
+
+  test('withinDays keeps only entries whose spent_on is inside the range', () {
+    TimeEntry on(int day) => TimeEntry.fromJson({
+          'user': {'id': 1, 'name': 'U'},
+          'spent_on': '2026-10-${day.toString().padLeft(2, '0')}',
+          'hours': 1,
+        });
+    final kept = withinDays([on(12), on(13), on(14), on(15)], DateTime(2026, 10, 13),
+        DateTime(2026, 10, 14));
+    expect(kept.map((e) => e.day.day), [13, 14]);
+  });
 }

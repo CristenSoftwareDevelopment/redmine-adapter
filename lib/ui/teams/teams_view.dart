@@ -515,8 +515,12 @@ class _TeamReportState extends State<_TeamReport> {
       _error = null;
     });
     try {
-      final from = _ymd(_range.start);
-      final to = _ymd(_range.end);
+      // One extra day on each side: Redmine shifts from/to by the user's
+      // time zone; withinDays below keeps only the requested days.
+      final start = _range.start;
+      final end = _range.end;
+      final from = _ymd(DateTime(start.year, start.month, start.day - 1));
+      final to = _ymd(DateTime(end.year, end.month, end.day + 1));
       final pages = await Future.wait([
         for (final m in widget.team.members)
           api.getAllPages(
@@ -526,9 +530,11 @@ class _TeamReportState extends State<_TeamReport> {
             cap: 2000,
           ),
       ]);
-      final entries = [
-        for (final page in pages) ...page.map(TimeEntry.fromJson),
-      ];
+      final entries = withinDays(
+        [for (final page in pages) ...page.map(TimeEntry.fromJson)],
+        start,
+        end,
+      );
 
       // Time entries only carry the issue id; fetch subjects 100 at a time.
       final missing = {
