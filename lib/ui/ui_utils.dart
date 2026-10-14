@@ -27,6 +27,36 @@ Future<void> openRedmineLink(BuildContext context, String link) async {
   }
 }
 
+const _accents = {
+  'á': 'a',
+  'à': 'a',
+  'â': 'a',
+  'ã': 'a',
+  'ä': 'a',
+  'é': 'e',
+  'è': 'e',
+  'ê': 'e',
+  'ë': 'e',
+  'í': 'i',
+  'ì': 'i',
+  'î': 'i',
+  'ï': 'i',
+  'ó': 'o',
+  'ò': 'o',
+  'ô': 'o',
+  'õ': 'o',
+  'ö': 'o',
+  'ú': 'u',
+  'ù': 'u',
+  'û': 'u',
+  'ü': 'u',
+  'ç': 'c',
+  'ñ': 'n',
+};
+
+/// Lowercase without accents, for search: `searchKey('André') == 'andre'`.
+String searchKey(String text) => text.toLowerCase().split('').map((c) => _accents[c] ?? c).join();
+
 /// Redmine date (`YYYY-MM-DD`) as `dd-MM-yyyy`, or `-`.
 String fmtDate(String? ymd) {
   final d = DateTime.tryParse(ymd ?? '');

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'alert_rule.dart';
 
 /// Default schedule: Mon–Fri (weekdays 1–5), 08:00–18:00.
@@ -22,6 +24,7 @@ class MonitoredQuery {
     this.lastCount,
     this.lastCheckedAt,
     this.pinned = false,
+    this.boardStatusIds,
     this.lastError,
     this.lastErrorAt,
     List<int>? scheduleWeekdays,
@@ -46,6 +49,9 @@ class MonitoredQuery {
 
   /// Shown as a board in the sidebar.
   final bool pinned;
+
+  /// Status ids chosen as board columns; null = automatic (statuses with issues).
+  final List<int>? boardStatusIds;
 
   /// Error of the last failed check; cleared on the next successful one.
   final String? lastError;
@@ -85,6 +91,7 @@ class MonitoredQuery {
     int? lastCount,
     DateTime? lastCheckedAt,
     bool? pinned,
+    Object? boardStatusIds = _sentinel,
     Object? lastError = _sentinel,
     Object? lastErrorAt = _sentinel,
     List<int>? scheduleWeekdays,
@@ -103,6 +110,9 @@ class MonitoredQuery {
       lastCount: lastCount ?? this.lastCount,
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
       pinned: pinned ?? this.pinned,
+      boardStatusIds: boardStatusIds == _sentinel
+          ? this.boardStatusIds
+          : boardStatusIds as List<int>?,
       lastError: lastError == _sentinel ? this.lastError : lastError as String?,
       lastErrorAt: lastErrorAt == _sentinel ? this.lastErrorAt : lastErrorAt as DateTime?,
       scheduleWeekdays: scheduleWeekdays ?? this.scheduleWeekdays,
@@ -124,6 +134,7 @@ class MonitoredQuery {
       'last_count': lastCount,
       'last_checked_at': lastCheckedAt?.toIso8601String(),
       'pinned': pinned ? 1 : 0,
+      'board_statuses': boardStatusIds == null ? null : jsonEncode(boardStatusIds),
       'last_error': lastError,
       'last_error_at': lastErrorAt?.toIso8601String(),
       'schedule_weekdays': scheduleWeekdays.join(','),
@@ -154,6 +165,9 @@ class MonitoredQuery {
           ? null
           : DateTime.tryParse(map['last_checked_at'] as String),
       pinned: (map['pinned'] as int? ?? 0) == 1,
+      boardStatusIds: map['board_statuses'] == null
+          ? null
+          : List<int>.from(jsonDecode(map['board_statuses'] as String) as List),
       lastError: map['last_error'] as String?,
       lastErrorAt: map['last_error_at'] == null
           ? null

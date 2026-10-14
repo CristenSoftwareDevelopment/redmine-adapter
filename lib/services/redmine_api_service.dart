@@ -54,19 +54,6 @@ class RedmineApiService {
     return fullName;
   }
 
-  /// `/users.json` is admin-only, so a 200 means the key belongs to an admin.
-  Future<bool> isAdmin(AppSettings settings) async {
-    try {
-      final response = await _send(
-        settings.apiKey,
-        Uri.parse(absoluteUrl(settings.baseUrl, '/users.json?limit=1')),
-      );
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
-  }
-
   /// GET [pathAndQuery] (relative to the configured base URL) and decode JSON.
   Future<dynamic> getJson(AppSettings settings, String pathAndQuery) async {
     final response = await _send(

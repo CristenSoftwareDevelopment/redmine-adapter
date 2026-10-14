@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/redmine_issue.dart';
@@ -63,16 +64,15 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final issue = _full ?? widget.issue;
     final border = AppColors.border(dark: dark);
+    final screen = MediaQuery.sizeOf(context);
 
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
       insetPadding: const EdgeInsets.all(Sp.s24),
       child: Container(
-        constraints: BoxConstraints(
-          maxWidth: 920,
-          maxHeight: MediaQuery.sizeOf(context).height * 0.88,
-        ),
+        width: screen.width * 0.85,
+        constraints: BoxConstraints(maxHeight: screen.height * 0.88),
         decoration: surfaceCard(dark: dark),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -118,7 +118,7 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [side, const SizedBox(height: Sp.s24), main],
+                        children: [main, const SizedBox(height: Sp.s24), side],
                       ),
                     );
                   }
@@ -150,6 +150,58 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
     );
   }
 
+  /// Redmine text (Markdown/CommonMark). Inline images need authentication,
+  /// so they become links to the attachment, opened in the browser.
+  Widget _markdown(String text, RedmineIssue issue, bool dark) {
+    final attachments = {
+      for (final a in (issue.json['attachments'] as List? ?? const []).cast<Map>())
+        '${a['filename']}': '${a['content_url']}',
+    };
+    final body = AppText.body(dark: dark).copyWith(height: 1.5);
+    return MarkdownBody(
+      data: text,
+      selectable: true,
+      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+        p: body,
+        listBullet: body,
+        tableBody: body,
+        h1: AppText.cardTitle(dark: dark),
+        h2: AppText.bodyLarge(dark: dark).copyWith(fontWeight: FontWeight.w600),
+        h3: AppText.bodySemibold(dark: dark),
+        h4: AppText.bodySemibold(dark: dark),
+        a: body.copyWith(color: AppColors.notionBlue),
+        code: body.copyWith(
+          fontFamily: 'monospace',
+          fontSize: 13,
+          backgroundColor: AppColors.border(dark: dark),
+        ),
+        codeblockDecoration: BoxDecoration(
+          color: AppColors.border(dark: dark),
+          borderRadius: BorderRadius.circular(AppRadius.micro),
+        ),
+        checkbox: body.copyWith(color: AppColors.mutedText(dark: dark)),
+        horizontalRuleDecoration: BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.border(dark: dark))),
+        ),
+        blockquoteDecoration: BoxDecoration(
+          border: Border(left: BorderSide(color: AppColors.border(dark: dark), width: 3)),
+        ),
+      ),
+      onTapLink: (_, href, __) {
+        if (href != null) openRedmineLink(context, href);
+      },
+      imageBuilder: (uri, title, alt) {
+        final name = uri.pathSegments.isEmpty ? '$uri' : uri.pathSegments.last;
+        return TextButton.icon(
+          style: TextButton.styleFrom(foregroundColor: AppColors.notionBlue),
+          onPressed: () => openRedmineLink(context, attachments[name] ?? '$uri'),
+          icon: const Icon(Icons.image_outlined, size: 16),
+          label: Text(alt?.isNotEmpty == true ? alt! : name),
+        );
+      },
+    );
+  }
+
   Widget _section(String title, bool dark) => Padding(
         padding: const EdgeInsets.only(top: Sp.s16, bottom: Sp.s8),
         child: Text(
@@ -177,10 +229,10 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
           ),
         ),
         const SizedBox(height: Sp.s8),
-        SelectableText(
-          issue.description.trim().isEmpty ? 'Sem descrição.' : issue.description,
-          style: AppText.body(dark: dark).copyWith(height: 1.5),
-        ),
+        if (issue.description.trim().isEmpty)
+          Text('Sem descrição.', style: AppText.captionLight(dark: dark))
+        else
+          _markdown(issue.description, issue, dark),
         if (attachments.isNotEmpty) ...[
           _section('Anexos', dark),
           for (final a in attachments)
@@ -252,7 +304,7 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
                   Text('Alterou: $details', style: AppText.microLabel(dark: dark)),
                 if (notes.isNotEmpty) ...[
                   const SizedBox(height: Sp.s4),
-                  SelectableText(notes, style: AppText.body(dark: dark).copyWith(height: 1.45)),
+                  _markdown(notes, _full ?? widget.issue, dark),
                 ],
               ],
             ),

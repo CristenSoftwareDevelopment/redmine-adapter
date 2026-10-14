@@ -36,11 +36,10 @@ class _BoardViewState extends State<BoardView> {
   int _loadSeq = 0;
   final Set<int> _moving = {};
 
-  /// While a card is dragged, empty open-status columns appear as drop targets.
-  bool _dragging = false;
+  /// Statuses that had issues this session: automatic columns never vanish.
+  final Set<int> _seen = {};
 
   bool _listMode = false;
-  bool _allStatuses = false;
   String _search = '';
   int? _assigneeId; // null = everyone, 0 = unassigned
 
@@ -77,7 +76,10 @@ class _BoardViewState extends State<BoardView> {
       final issues = await _api.getAllPages(settings, widget.query.endpoint, 'issues');
       // A newer load (e.g. after another drag) owns the screen now.
       if (mounted && seq == _loadSeq) {
-        setState(() => _issues = issues.map(RedmineIssue.new).toList());
+        setState(() {
+          _issues = issues.map(RedmineIssue.new).toList();
+          _seen.addAll(_issues!.map((i) => i.statusId));
+        });
       }
     } catch (error) {
       if (mounted && seq == _loadSeq) {
@@ -98,7 +100,6 @@ class _BoardViewState extends State<BoardView> {
     setState(() {
       issue.json['status'] = {'id': targetId, 'name': status['name']};
       _moving.add(issue.id);
-      _dragging = false;
     });
 
     String? problem;
@@ -127,11 +128,11 @@ class _BoardViewState extends State<BoardView> {
   }
 
   List<RedmineIssue> get _visible {
-    final q = _search.trim().toLowerCase().replaceFirst('#', '');
+    final q = searchKey(_search.trim()).replaceFirst('#', '');
     return [
       for (final i in _issues ?? const <RedmineIssue>[])
         if ((_assigneeId == null || (i.assigneeId ?? 0) == _assigneeId) &&
-            (q.isEmpty || i.subject.toLowerCase().contains(q) || '${i.id}'.startsWith(q)))
+            (q.isEmpty || searchKey(i.subject).contains(q) || '${i.id}'.startsWith(q)))
           i,
     ];
   }
@@ -141,15 +142,26 @@ class _BoardViewState extends State<BoardView> {
           if (s['is_closed'] == true) s['id'] as int,
       };
 
+  List<int> get _columnIds => boardColumnIds(
+        statusOrder: [for (final s in _statuses) s['id'] as int],
+        saved: widget.query.boardStatusIds,
+        seen: _seen,
+      );
+
+  Future<void> _setColumns(List<int>? ids) =>
+      context.read<AppState>().setBoardStatuses(widget.query, ids);
+
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final visible = _visible;
+    final columnIds = _columnIds;
+    final hidden = _listMode ? 0 : visible.where((i) => !columnIds.contains(i.statusId)).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _toolbar(visible.length, dark),
+        _toolbar(visible.length - hidden, hidden, columnIds, dark),
         SizedBox(
           height: 2,
           child: _loading ? const LinearProgressIndicator(minHeight: 2) : null,
@@ -185,7 +197,7 @@ class _BoardViewState extends State<BoardView> {
     );
   }
 
-  Widget _toolbar(int count, bool dark) {
+  Widget _toolbar(int count, int hidden, List<int> columnIds, bool dark) {
     final assignees = <int, String>{
       for (final i in _issues ?? const <RedmineIssue>[])
         if (i.assigneeId != null) i.assigneeId!: i.assigneeName ?? '?',
@@ -193,6 +205,7 @@ class _BoardViewState extends State<BoardView> {
     final sortedAssignees = assignees.entries.toList()
       ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
 
+    // Every control is 40px tall so the toolbar lines up.
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
       child: Wrap(
@@ -203,20 +216,19 @@ class _BoardViewState extends State<BoardView> {
           SizedBox(
             width: 240,
             child: TextField(
+              textAlignVertical: TextAlignVertical.center,
               decoration: const InputDecoration(
                 hintText: 'Buscar por título ou #id',
                 prefixIcon: Icon(Icons.search, size: 18),
+                prefixIconConstraints: BoxConstraints(minWidth: 36, minHeight: _toolbarHeight),
                 isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: Sp.s12),
+                constraints: BoxConstraints.tightFor(height: _toolbarHeight),
               ),
               onChanged: (v) => setState(() => _search = v),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: Sp.s12),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.border(dark: dark)),
-              borderRadius: BorderRadius.circular(AppRadius.micro),
-            ),
+          _ToolbarBox(
             child: DropdownButtonHideUnderline(
               child: DropdownButton<int?>(
                 value: _assigneeId,
@@ -232,30 +244,41 @@ class _BoardViewState extends State<BoardView> {
               ),
             ),
           ),
-          SegmentedButton<bool>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(
-                value: false,
-                icon: Icon(Icons.view_kanban_outlined, size: 16),
-                label: Text('Board'),
+          SizedBox(
+            height: _toolbarHeight,
+            child: SegmentedButton<bool>(
+              showSelectedIcon: false,
+              style: SegmentedButton.styleFrom(
+                minimumSize: const Size(0, _toolbarHeight),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.micro),
+                ),
               ),
-              ButtonSegment(
-                value: true,
-                icon: Icon(Icons.view_list_outlined, size: 16),
-                label: Text('Lista'),
-              ),
-            ],
-            selected: {_listMode},
-            onSelectionChanged: (v) => setState(() => _listMode = v.first),
-          ),
-          if (!_listMode)
-            FilterChip(
-              label: const Text('Todos os status'),
-              selected: _allStatuses,
-              onSelected: (v) => setState(() => _allStatuses = v),
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.view_kanban_outlined, size: 16),
+                  label: Text('Board'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.view_list_outlined, size: 16),
+                  label: Text('Lista'),
+                ),
+              ],
+              selected: {_listMode},
+              onSelectionChanged: (v) => setState(() => _listMode = v.first),
             ),
-          Text('$count tarefa${count == 1 ? '' : 's'}', style: AppText.caption(dark: dark)),
+          ),
+          if (!_listMode) _columnsMenu(columnIds, dark),
+          Text(
+            [
+              '$count tarefa${count == 1 ? '' : 's'}',
+              if (hidden > 0) '$hidden em colunas ocultas',
+            ].join(' · '),
+            style: AppText.caption(dark: dark),
+          ),
           IconButton(
             tooltip: 'Atualizar',
             onPressed: _loading ? null : _load,
@@ -271,19 +294,59 @@ class _BoardViewState extends State<BoardView> {
     );
   }
 
+  /// Multiselect of the board columns; the choice is saved per board.
+  Widget _columnsMenu(List<int> columnIds, bool dark) {
+    return MenuAnchor(
+      menuChildren: [
+        for (final s in _statuses)
+          CheckboxMenuButton(
+            value: columnIds.contains(s['id']),
+            closeOnActivate: false,
+            onChanged: (checked) => _setColumns(
+              checked == true
+                  ? [...columnIds, s['id'] as int]
+                  : columnIds.where((id) => id != s['id']).toList(),
+            ),
+            child: Text('${s['name']}'),
+          ),
+        const Divider(height: 1),
+        MenuItemButton(
+          onPressed: () => _setColumns([for (final s in _statuses) s['id'] as int]),
+          child: const Text('Mostrar todas'),
+        ),
+        MenuItemButton(
+          onPressed: () => _setColumns(null),
+          child: const Text('Só status com tarefas'),
+        ),
+      ],
+      builder: (context, controller, _) => _ToolbarBox(
+        onTap: () => controller.isOpen ? controller.close() : controller.open(),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.view_column_outlined, size: 18),
+            const SizedBox(width: Sp.s8),
+            Text(
+              'Colunas ${columnIds.length}/${_statuses.length}',
+              style: AppText.body(dark: dark),
+            ),
+            const Icon(Icons.arrow_drop_down, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Board ──────────────────────────────────────────────────────────────────
 
   Widget _board(List<RedmineIssue> visible, bool dark) {
-    final present = {for (final i in visible) i.statusId};
+    final names = {
+      for (final i in visible) i.statusId: i.statusName,
+      for (final s in _statuses) s['id'] as int: '${s['name']}',
+    };
     final columns = [
-      for (final s in _statuses)
-        if (_allStatuses || present.contains(s['id']) || (_dragging && s['is_closed'] != true)) s,
+      for (final id in _columnIds) {'id': id, 'name': names[id] ?? '#$id'},
     ];
-    for (final i in visible) {
-      if (!columns.any((c) => c['id'] == i.statusId)) {
-        columns.add({'id': i.statusId, 'name': i.statusName});
-      }
-    }
     final closed = _closedStatusIds;
     final multiProject = visible.map((i) => i.projectName).toSet().length > 1;
 
@@ -384,8 +447,6 @@ class _BoardViewState extends State<BoardView> {
                       child: Draggable<RedmineIssue>(
                         data: issue,
                         maxSimultaneousDrags: _moving.contains(issue.id) ? 0 : 1,
-                        onDragStarted: () => setState(() => _dragging = true),
-                        onDragEnd: (_) => setState(() => _dragging = false),
                         feedback: Material(
                           color: Colors.transparent,
                           child: SizedBox(
@@ -647,4 +708,54 @@ class _IssueCard extends StatelessWidget {
       ),
     );
   }
+}
+
+const _toolbarHeight = 40.0;
+
+/// Toolbar control frame matching the theme's text field.
+class _ToolbarBox extends StatelessWidget {
+  const _ToolbarBox({required this.child, this.onTap});
+
+  final Widget child;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final input = Theme.of(context).inputDecorationTheme;
+    return Material(
+      color: input.fillColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.micro),
+        side: input.enabledBorder?.borderSide ?? BorderSide.none,
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.micro),
+        child: Container(
+          height: _toolbarHeight,
+          padding: const EdgeInsets.symmetric(horizontal: Sp.s12),
+          // widthFactor 1: hug the content instead of filling the Wrap line.
+          child: Align(alignment: Alignment.centerLeft, widthFactor: 1, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+/// Status ids shown as board columns, in Redmine's status order.
+/// [saved] is the user's choice for the board (null = automatic: every status
+/// that had issues this session, in [seen]). Unknown ids that still have
+/// issues go last.
+List<int> boardColumnIds({
+  required List<int> statusOrder,
+  required List<int>? saved,
+  required Set<int> seen,
+}) {
+  final wanted = saved?.toSet() ?? seen;
+  return [
+    for (final id in statusOrder)
+      if (wanted.contains(id)) id,
+    for (final id in seen)
+      if (wanted.contains(id) && !statusOrder.contains(id)) id,
+  ];
 }

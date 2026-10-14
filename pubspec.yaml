@@ -19,6 +19,7 @@ dependencies:
   local_notifier: ^0.1.6
   window_manager: ^0.5.1
   tray_manager: ^0.5.2
+  flutter_markdown_plus: ^1.0.12
 
 dev_dependencies:
   flutter_test:

@@ -11,6 +11,8 @@ import 'package:redmine_monitor_flutter/services/notifications/notification_temp
 import 'package:redmine_monitor_flutter/services/database_service.dart';
 import 'package:redmine_monitor_flutter/services/redmine_api_service.dart';
 import 'package:redmine_monitor_flutter/state/app_state.dart';
+import 'package:redmine_monitor_flutter/ui/board/board_view.dart';
+import 'package:redmine_monitor_flutter/ui/ui_utils.dart';
 import 'package:redmine_monitor_flutter/ui/widgets/query_form_dialog.dart';
 
 void main() {
@@ -203,5 +205,19 @@ void main() {
     expect(sumHours(entries, (e) => e.issueId)[null], 1);
     expect(fmtHours(3.5), '3,5');
     expect(fmtHours(4), '4');
+  });
+
+  test('board columns keep Redmine order and never drop automatic ones', () {
+    const order = [1, 2, 3, 4];
+    // Automatic: statuses seen this session, in Redmine order.
+    expect(boardColumnIds(statusOrder: order, saved: null, seen: {3, 1}), [1, 3]);
+    // Saved choice wins, even for empty statuses; unknown ids with issues go last.
+    expect(boardColumnIds(statusOrder: order, saved: [4, 2], seen: {1}), [2, 4]);
+    expect(boardColumnIds(statusOrder: order, saved: null, seen: {9, 2}), [2, 9]);
+  });
+
+  test('search ignores case and accents', () {
+    expect(searchKey('André Ação'), 'andre acao');
+    expect(searchKey('André Cristen').contains(searchKey('andre')), true);
   });
 }

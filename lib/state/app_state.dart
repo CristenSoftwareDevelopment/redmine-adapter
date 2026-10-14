@@ -44,9 +44,6 @@ class AppState extends ChangeNotifier {
   List<MonitorLog> monitorLogs = const [];
   List<Team> teams = const [];
 
-  /// Admin accounts get the Teams/time report (it needs `/users.json`).
-  bool isAdmin = false;
-
   bool loading = true;
   bool monitoring = false;
   AlertEvent? lastAlert;
@@ -92,7 +89,6 @@ class AppState extends ChangeNotifier {
           }
           invalidCredentials = false;
           onboardingErrorMessage = null;
-          unawaited(_refreshAdmin());
         } catch (error) {
           final message = error.toString().replaceFirst('Exception: ', '');
           invalidCredentials = message.startsWith('Credenciais inválidas');
@@ -144,12 +140,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveSettings(AppSettings next) async {
-    final credentialsChanged =
-        next.baseUrl != settings.baseUrl || next.apiKey != settings.apiKey;
     await _databaseService.saveSettings(next);
     settings = next;
     notifyListeners();
-    if (credentialsChanged) unawaited(_refreshAdmin());
 
     if (monitoring) {
       await _monitorService.restart();
@@ -179,16 +172,6 @@ class AppState extends ChangeNotifier {
     await _monitorService.restart();
     monitoring = true;
     notifyListeners();
-    unawaited(_refreshAdmin());
-  }
-
-  Future<void> _refreshAdmin() async {
-    final checked = settings;
-    final admin = await RedmineApiService().isAdmin(checked);
-    // Credentials changed (or signed out) while checking: drop the result.
-    if (checked.baseUrl != settings.baseUrl || checked.apiKey != settings.apiKey) return;
-    isAdmin = admin;
-    notifyListeners();
   }
 
   Future<void> saveTeam(Team team) async {
@@ -209,7 +192,6 @@ class AppState extends ChangeNotifier {
     );
     await _databaseService.saveSettings(clearedSettings);
     settings = clearedSettings;
-    isAdmin = false;
     invalidCredentials = false;
     onboardingErrorMessage = null;
     if (monitoring) {
@@ -237,6 +219,11 @@ class AppState extends ChangeNotifier {
 
   Future<void> toggleQueryEnabled(MonitoredQuery query) async {
     await updateQuery(query.copyWith(enabled: !query.enabled));
+  }
+
+  Future<void> setBoardStatuses(MonitoredQuery query, List<int>? statusIds) async {
+    await _databaseService.setBoardStatuses(query.id!, statusIds);
+    await refreshData();
   }
 
   /// Pins/unpins a query as a sidebar board without restarting the monitor.
@@ -346,6 +333,7 @@ class AppState extends ChangeNotifier {
                 'enabled': q.enabled,
                 'alertRules': q.alertRules.map((r) => r.toJson()).toList(),
                 'pinned': q.pinned,
+                'boardStatuses': q.boardStatusIds,
                 'scheduleWeekdays': q.scheduleWeekdays,
                 'scheduleStartHour': q.scheduleStartHour,
                 'scheduleEndHour': q.scheduleEndHour,
@@ -427,6 +415,9 @@ class AppState extends ChangeNotifier {
                   ),
                 ],
           pinned: entry['pinned'] == true,
+          boardStatusIds: entry['boardStatuses'] is List
+              ? (entry['boardStatuses'] as List).whereType<int>().toList()
+              : null,
           scheduleWeekdays: entry['scheduleWeekdays'] is List
               ? List<int>.from((entry['scheduleWeekdays'] as List).map((e) => e as int))
               : defaultScheduleWeekdays,
@@ -466,7 +457,6 @@ class AppState extends ChangeNotifier {
       await _monitorService.restart();
     }
     await refreshData();
-    unawaited(_refreshAdmin());
   }
 
   List<QueryHealth> get queryHealth {

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -227,6 +228,7 @@ class DatabaseService {
         );
         for (final (table, column, definition) in const [
           ('queries', 'pinned', 'INTEGER NOT NULL DEFAULT 0'),
+          ('queries', 'board_statuses', 'TEXT'),
           ('queries', 'alert_rules', 'TEXT'),
           ('queries', 'last_error', 'TEXT'),
           ('queries', 'last_error_at', 'TEXT'),
@@ -296,6 +298,7 @@ class DatabaseService {
         schedule_start_hour INTEGER NOT NULL DEFAULT 8,
         schedule_end_hour INTEGER NOT NULL DEFAULT 18,
         pinned INTEGER NOT NULL DEFAULT 0,
+        board_statuses TEXT,
         alert_rules TEXT,
         last_error TEXT,
         last_error_at TEXT
@@ -489,8 +492,8 @@ class DatabaseService {
     return database.insert('queries', query.toDbMap()..remove('id'));
   }
 
-  /// Saves the user-editable fields. Columns owned by the monitor are left
-  /// alone, so a stale copy from the UI can't roll back the last check.
+  /// Saves the user-editable fields. Columns owned by the monitor and by the
+  /// board are left alone, so a stale copy from the UI can't roll them back.
   Future<void> updateQuery(MonitoredQuery query) async {
     final database = await db;
     await database.update(
@@ -500,7 +503,8 @@ class DatabaseService {
         ..remove('last_count')
         ..remove('last_checked_at')
         ..remove('last_error')
-        ..remove('last_error_at'),
+        ..remove('last_error_at')
+        ..remove('board_statuses'),
       where: 'id = ?',
       whereArgs: [query.id],
     );
@@ -530,6 +534,17 @@ class DatabaseService {
         'last_error': null,
         'last_error_at': null,
       },
+      where: 'id = ?',
+      whereArgs: [queryId],
+    );
+  }
+
+  /// Board columns for a pinned query (null = automatic).
+  Future<void> setBoardStatuses(int queryId, List<int>? statusIds) async {
+    final database = await db;
+    await database.update(
+      'queries',
+      {'board_statuses': statusIds == null ? null : jsonEncode(statusIds)},
       where: 'id = ?',
       whereArgs: [queryId],
     );

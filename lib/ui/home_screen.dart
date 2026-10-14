@@ -128,25 +128,41 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Brand mark
+                    // Brand mark + collapse toggle (adapts while the width animates)
                     SizedBox(
                       height: 56,
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 21),
-                          Image.asset('assets/icon.png', width: 22, height: 22),
-                          const SizedBox(width: 8),
-                          if (!collapsed)
-                            Expanded(
-                              child: Text(
-                                'Redmine Monitor',
-                                maxLines: 1,
-                                softWrap: false,
-                                overflow: TextOverflow.fade,
-                                style: AppText.bodySemibold(dark: dark),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => constraints.maxWidth < 160
+                            ? Center(
+                                child: IconButton(
+                                  tooltip: 'Expandir menu',
+                                  onPressed: () => setState(() => _collapsed = false),
+                                  icon: const Icon(Icons.menu, size: 20),
+                                ),
+                              )
+                            : Row(
+                                children: [
+                                  const SizedBox(width: 21),
+                                  Image.asset('assets/icon.png', width: 22, height: 22),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Redmine Monitor',
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      overflow: TextOverflow.fade,
+                                      style: AppText.bodySemibold(dark: dark),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    tooltip: 'Recolher menu',
+                                    onPressed: () => setState(() => _collapsed = true),
+                                    icon: const Icon(Icons.menu_open, size: 20),
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
                               ),
-                            ),
-                        ],
                       ),
                     ),
                     Container(height: 1, color: borderColor),
@@ -172,14 +188,13 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                             badge: failedQueries,
                             badgeColor: AppColors.orange,
                           ),
-                          if (appState.isAdmin)
-                            _navItem(
-                              _Page.teams,
-                              Icons.groups_outlined,
-                              Icons.groups,
-                              'Times e horas',
-                              dark,
-                            ),
+                          _navItem(
+                            _Page.teams,
+                            Icons.groups_outlined,
+                            Icons.groups,
+                            'Times e horas',
+                            dark,
+                          ),
                           if (pinned.isNotEmpty) _SectionLabel('Boards', dark: dark),
                           for (final q in pinned)
                             _NavItem(
@@ -205,16 +220,6 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                       'Logs',
                       dark,
                     ),
-                    _NavItem(
-                      icon: collapsed
-                          ? Icons.keyboard_double_arrow_right
-                          : Icons.keyboard_double_arrow_left,
-                      label: 'Recolher menu',
-                      tooltip: collapsed ? 'Expandir menu' : 'Recolher menu',
-                      selected: false,
-                      dark: dark,
-                      onTap: () => setState(() => _collapsed = !collapsed),
-                    ),
                     const SizedBox(height: 6),
                   ],
                 ),
@@ -234,22 +239,28 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Row(
                         children: [
-                          Flexible(
-                            child: Text(
-                              board == null ? _pageTitle : 'Boards  ›  ${board.name}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.bodySemibold(dark: dark),
+                          // Expanded (not Flexible + Spacer) keeps the account at the far right.
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    board == null ? _pageTitle : 'Boards  ›  ${board.name}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppText.bodySemibold(dark: dark),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                if (!appState.isProductionDatabase)
+                                  _EnvironmentBadge(
+                                    environment: appState.databaseEnvironment,
+                                    isProduction: appState.isProductionDatabase,
+                                    dark: dark,
+                                  ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          if (!appState.isProductionDatabase)
-                            _EnvironmentBadge(
-                              environment: appState.databaseEnvironment,
-                              isProduction: appState.isProductionDatabase,
-                              dark: dark,
-                            ),
-                          const Spacer(),
                           if (hasConfiguredAccount) ...[
                             Icon(Icons.account_circle_outlined,
                                 size: 16, color: dark ? AppColors.darkMuted : AppColors.warmDark),
@@ -463,14 +474,12 @@ class _NavItem extends StatefulWidget {
     required this.selected,
     required this.dark,
     required this.onTap,
-    this.tooltip,
     this.badge,
     this.badgeColor = AppColors.notionBlue,
   });
 
   final IconData icon;
   final String label;
-  final String? tooltip;
   final bool selected;
   final bool dark;
   final VoidCallback onTap;
@@ -521,7 +530,7 @@ class _NavItemState extends State<_NavItem> {
         final icon = Icon(widget.icon, size: 18, color: color);
 
         return Tooltip(
-          message: compact ? (widget.tooltip ?? widget.label) : '',
+          message: compact ? widget.label : '',
           waitDuration: const Duration(milliseconds: 300),
           child: MouseRegion(
             onEnter: (_) => setState(() => _hovered = true),

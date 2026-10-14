@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -12,7 +11,7 @@ import '../../state/app_state.dart';
 import '../ui_utils.dart';
 
 /// Teams (groups of Redmine users) and their spent time per person and day.
-/// Admin only: it searches `/users.json` and reads everyone's time entries.
+/// Members come from project memberships, so no admin key is needed.
 class TeamsView extends StatefulWidget {
   const TeamsView({super.key});
 
@@ -27,15 +26,6 @@ class _TeamsViewState extends State<TeamsView> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final dark = Theme.of(context).brightness == Brightness.dark;
-    if (!state.isAdmin) {
-      return Center(
-        child: Text(
-          'Disponível apenas para contas administradoras do Redmine.',
-          style: AppText.captionLight(dark: dark),
-        ),
-      );
-    }
-
     final teams = state.teams;
     final selected = teams.where((t) => t.id == _selectedId).firstOrNull ?? teams.firstOrNull;
 
@@ -154,52 +144,177 @@ class _TeamDialog extends StatefulWidget {
 class _TeamDialogState extends State<_TeamDialog> {
   late final _name = TextEditingController(text: widget.initial?.name ?? '');
   late final List<TeamMember> _members = [...?widget.initial?.members];
-  final _search = TextEditingController();
-  Timer? _debounce;
-  List<TeamMember> _results = const [];
-  bool _searching = false;
+  final _api = RedmineApiService();
+  List<({int id, String name})>? _projects;
+  int? _projectId;
+  List<TeamMember>? _projectMembers;
+  bool _loadingMembers = false;
+  String _filter = '';
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    _loadProjects();
+  }
+
+  @override
   void dispose() {
-    _debounce?.cancel();
     _name.dispose();
-    _search.dispose();
     super.dispose();
   }
 
-  void _onSearchChanged(String text) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () => _searchUsers(text.trim()));
-  }
-
-  Future<void> _searchUsers(String query) async {
-    if (query.length < 2) {
-      setState(() => _results = const []);
-      return;
-    }
-    setState(() {
-      _searching = true;
-      _error = null;
-    });
+  Future<void> _loadProjects() async {
     try {
-      final data = await RedmineApiService().getJson(
+      final projects = await _api.getAllPages(
         context.read<AppState>().settings,
-        '/users.json?status=1&limit=25&name=${Uri.encodeQueryComponent(query)}',
+        '/projects.json',
+        'projects',
+        cap: 2000,
       );
-      if (!mounted || _search.text.trim() != query) return;
+      if (!mounted) return;
       setState(() {
-        _results = [
-          for (final u in (data['users'] as List).cast<Map>())
-            TeamMember(id: u['id'] as int, name: '${u['firstname']} ${u['lastname']}'.trim()),
-        ];
+        _projects = [
+          for (final p in projects) (id: p['id'] as int, name: p['name'] as String? ?? '?'),
+        ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       });
     } catch (error) {
       if (mounted) setState(() => _error = '$error'.replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _searching = false);
     }
   }
+
+  /// Project members via memberships (works for any member, no admin needed).
+  Future<void> _loadMembers(int projectId) async {
+    setState(() {
+      _projectId = projectId;
+      _projectMembers = null;
+      _loadingMembers = true;
+      _error = null;
+    });
+    try {
+      final memberships = await _api.getAllPages(
+        context.read<AppState>().settings,
+        '/projects/$projectId/memberships.json',
+        'memberships',
+        cap: 2000,
+      );
+      if (!mounted || _projectId != projectId) return;
+      // Group memberships have `group` instead of `user`: skipped.
+      final byId = <int, TeamMember>{
+        for (final m in memberships)
+          if (m['user'] is Map)
+            (m['user'] as Map)['id'] as int: TeamMember(
+              id: (m['user'] as Map)['id'] as int,
+              name: (m['user'] as Map)['name'] as String? ?? '?',
+            ),
+      };
+      setState(() {
+        _projectMembers = byId.values.toList()
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      });
+    } catch (error) {
+      if (mounted && _projectId == projectId) {
+        setState(() => _error = '$error'.replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted && _projectId == projectId) setState(() => _loadingMembers = false);
+    }
+  }
+
+  Widget _projectPicker(bool dark) {
+    final projects = _projects;
+    if (projects == null) {
+      return Row(
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: Sp.s8),
+          Text('Carregando projetos…', style: AppText.caption(dark: dark)),
+        ],
+      );
+    }
+    return DropdownMenu<int>(
+      expandedInsets: EdgeInsets.zero,
+      enableFilter: true,
+      requestFocusOnTap: true,
+      menuHeight: 300,
+      label: const Text('Adicionar membros de um projeto'),
+      hintText: 'Digite para buscar…',
+      leadingIcon: const Icon(Icons.search, size: 18),
+      dropdownMenuEntries: [
+        for (final p in projects) DropdownMenuEntry(value: p.id, label: p.name),
+      ],
+      onSelected: (id) {
+        if (id != null) _loadMembers(id);
+      },
+    );
+  }
+
+  List<Widget> _memberList(Set<int> memberIds, bool dark) {
+    final q = searchKey(_filter.trim());
+    final shown = [
+      for (final m in _projectMembers!)
+        if (q.isEmpty || searchKey(m.name).contains(q)) m,
+    ];
+    return [
+      const SizedBox(height: Sp.s12),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Filtrar membros',
+                prefixIcon: Icon(Icons.filter_list, size: 18),
+                isDense: true,
+              ),
+              onChanged: (v) => setState(() => _filter = v),
+            ),
+          ),
+          TextButton(
+            onPressed: () => setState(() {
+              for (final m in shown) {
+                if (!memberIds.contains(m.id)) _members.add(m);
+              }
+            }),
+            child: const Text('Marcar todos'),
+          ),
+        ],
+      ),
+      if (shown.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: Sp.s8),
+          child: Text('Nenhum membro encontrado.', style: AppText.captionLight(dark: dark)),
+        )
+      else
+        Flexible(
+          flex: 2,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              for (final m in shown)
+                CheckboxListTile(
+                  dense: true,
+                  value: memberIds.contains(m.id),
+                  onChanged: (checked) => _toggle(m, checked == true),
+                  secondary: UserAvatar(name: m.name, size: 26),
+                  title: Text(m.name),
+                ),
+            ],
+          ),
+        ),
+    ];
+  }
+
+  void _toggle(TeamMember member, bool add) => setState(() {
+        if (add) {
+          _members.add(member);
+        } else {
+          _members.removeWhere((m) => m.id == member.id);
+        }
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -211,7 +326,10 @@ class _TeamDialogState extends State<_TeamDialog> {
       elevation: 0,
       insetPadding: const EdgeInsets.all(Sp.s24),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 520),
+        constraints: BoxConstraints(
+          maxWidth: 560,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+        ),
         decoration: surfaceCard(dark: dark),
         padding: const EdgeInsets.all(Sp.s24),
         child: Column(
@@ -235,38 +353,25 @@ class _TeamDialogState extends State<_TeamDialog> {
             if (_members.isEmpty)
               Text('Nenhum membro ainda.', style: AppText.captionLight(dark: dark))
             else
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final m in _members)
-                    InputChip(
-                      avatar: UserAvatar(name: m.name, size: 22),
-                      label: Text(m.name),
-                      onDeleted: () => setState(() => _members.remove(m)),
-                    ),
-                ],
+              // Chips and the member list share the height left in the dialog.
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final m in _members)
+                        InputChip(
+                          avatar: UserAvatar(name: m.name, size: 22),
+                          label: Text(m.name),
+                          onDeleted: () => setState(() => _members.remove(m)),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             const SizedBox(height: Sp.s16),
-            TextField(
-              controller: _search,
-              onChanged: _onSearchChanged,
-              decoration: InputDecoration(
-                hintText: 'Buscar usuário (nome, login ou e-mail)',
-                prefixIcon: const Icon(Icons.person_search_outlined, size: 18),
-                isDense: true,
-                suffixIcon: _searching
-                    ? const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : null,
-              ),
-            ),
+            _projectPicker(dark),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: Sp.s8),
@@ -275,28 +380,12 @@ class _TeamDialogState extends State<_TeamDialog> {
                   style: AppText.microLabel(dark: dark).copyWith(color: AppColors.orange),
                 ),
               ),
-            if (_results.isNotEmpty)
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 220),
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    for (final r in _results)
-                      ListTile(
-                        dense: true,
-                        leading: UserAvatar(name: r.name, size: 26),
-                        title: Text(r.name),
-                        trailing: Icon(
-                          memberIds.contains(r.id) ? Icons.check : Icons.add,
-                          size: 18,
-                          color: memberIds.contains(r.id) ? AppColors.green : AppColors.notionBlue,
-                        ),
-                        onTap:
-                            memberIds.contains(r.id) ? null : () => setState(() => _members.add(r)),
-                      ),
-                  ],
-                ),
+            if (_loadingMembers)
+              const Padding(
+                padding: EdgeInsets.only(top: Sp.s12),
+                child: LinearProgressIndicator(minHeight: 2),
               ),
+            if (_projectMembers != null) ..._memberList(memberIds, dark),
             const SizedBox(height: Sp.s24),
             Row(
               children: [
@@ -770,7 +859,8 @@ class _TeamReportState extends State<_TeamReport> {
             ],
           ),
           Text(
-            'Clique numa pessoa, dia ou célula da tabela para detalhar.',
+            'Clique numa pessoa, dia ou célula da tabela para detalhar. Só aparecem as horas '
+            "que seu papel no Redmine pode ver (permissão 'Ver tempo gasto').",
             style: AppText.microLabel(dark: dark),
           ),
           const SizedBox(height: Sp.s8),
