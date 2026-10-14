@@ -875,6 +875,9 @@ class _TeamReportState extends State<_TeamReport> {
   }
 
   /// One task (or activity type); tap to list its time entries.
+  void _openIssue(int id) =>
+      showIssueDetail(context, RedmineIssue({'id': id, 'subject': _subjects[id] ?? ''}));
+
   Widget _groupRow(String key, List<TimeEntry> list, double hours, bool dark) {
     final issueId = _byActivity ? null : list.first.issueId;
     final expanded = _expanded.contains(key);
@@ -889,10 +892,7 @@ class _TeamReportState extends State<_TeamReport> {
         children: [
           if (!_byActivity && issueId != null)
             InkWell(
-              onTap: () => showIssueDetail(
-                context,
-                RedmineIssue({'id': issueId, 'subject': _subjects[issueId] ?? ''}),
-              ),
+              onTap: () => _openIssue(issueId),
               child: Text(
                 '#$issueId',
                 style: AppText.microLabel(dark: dark).copyWith(color: AppColors.accent(dark: dark)),
@@ -912,6 +912,15 @@ class _TeamReportState extends State<_TeamReport> {
             ? '$tasks tarefa${tasks == 1 ? '' : 's'} · $count'
             : '$activities · $count'),
       ],
+      actions: [
+        if (issueId != null)
+          IconBtn(
+            compact: true,
+            icon: Icons.visibility_outlined,
+            tooltip: 'Ver tarefa',
+            onPressed: () => _openIssue(issueId),
+          ),
+      ],
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -928,44 +937,58 @@ class _TeamReportState extends State<_TeamReport> {
               padding: const EdgeInsets.only(top: 10),
               child: Column(
                 children: [
+                  // Each entry opens its task, so "Por tipo de atividade" also reaches the issue.
                   for (final e in list..sort((a, b) => a.day.compareTo(b.day)))
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 5),
-                      child: Row(
-                        children: [
-                          UserAvatar(name: e.userName, size: 22),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text.rich(
-                              TextSpan(
-                                children: [
-                                  TextSpan(
-                                    text: '${e.userName} · ',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.text(dark: dark),
+                    InkWell(
+                      onTap: e.issueId == null ? null : () => _openIssue(e.issueId!),
+                      hoverColor: AppColors.cellHover(dark: dark),
+                      borderRadius: BorderRadius.circular(AppRadius.standard),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 6),
+                        child: Row(
+                          children: [
+                            UserAvatar(name: e.userName, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: '${e.userName} · ',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.text(dark: dark),
+                                      ),
                                     ),
-                                  ),
-                                  TextSpan(
-                                    text: [
-                                      fmtDate(_ymd(e.day)).replaceAll('-', '/'),
-                                      _byActivity
-                                          ? (e.issueId == null
-                                              ? 'Sem tarefa'
-                                              : '#${e.issueId} ${_subjects[e.issueId] ?? ''}')
-                                          : e.activity,
-                                      if (e.comments.isNotEmpty) e.comments,
-                                    ].join(' · '),
-                                  ),
-                                ],
+                                    TextSpan(
+                                      text: [
+                                        fmtDate(_ymd(e.day)).replaceAll('-', '/'),
+                                        _byActivity
+                                            ? (e.issueId == null
+                                                ? 'Sem tarefa'
+                                                : '#${e.issueId} ${_subjects[e.issueId] ?? ''}')
+                                            : e.activity,
+                                        if (e.comments.isNotEmpty) e.comments,
+                                      ].join(' · '),
+                                    ),
+                                  ],
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppText.microLabel(dark: dark),
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.microLabel(dark: dark),
                             ),
-                          ),
-                          Text('${fmtHours(e.hours)} h', style: AppText.microLabel(dark: dark)),
-                        ],
+                            Text('${fmtHours(e.hours)} h', style: AppText.microLabel(dark: dark)),
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.chevron_right,
+                              size: 16,
+                              color: e.issueId == null
+                                  ? Colors.transparent
+                                  : AppColors.mutedText(dark: dark),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                 ],
