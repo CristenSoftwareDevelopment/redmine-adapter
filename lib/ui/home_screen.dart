@@ -26,10 +26,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with WindowListener, TrayListener {
+class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListener {
   String _lastAlertKey = '';
-  int _selectedIndex = 0;
+  _Page _page = _Page.monitoring;
+
+  /// User choice; null = automatic (collapsed on narrow windows).
+  bool? _collapsed;
 
   @override
   void initState() {
@@ -93,11 +95,13 @@ class _HomeScreenState extends State<HomeScreen>
           return _ErrorScreen(error: appState.initError!, onRetry: appState.retryInit);
         }
 
+        final collapsed = _collapsed ?? MediaQuery.sizeOf(context).width < 900;
+        final unreadAlerts = appState.alerts.where((a) => !a.isRead).length;
+        final failedQueries = appState.queries.where((q) => q.lastError != null).length;
         final sidebarBg = dark ? AppColors.darkCard : AppColors.pureWhite;
         final contentBg = dark ? AppColors.darkSurface : AppColors.warmWhite;
         final borderColor = dark ? AppColors.darkBorder : AppColors.whisperBorder;
-        final hasConfiguredAccount =
-            appState.settings.baseUrl.trim().isNotEmpty &&
+        final hasConfiguredAccount = appState.settings.baseUrl.trim().isNotEmpty &&
             appState.settings.apiKey.trim().isNotEmpty;
         final accountLabel = (appState.settings.accountName?.trim().isNotEmpty ?? false)
             ? appState.settings.accountName!.trim()
@@ -108,65 +112,83 @@ class _HomeScreenState extends State<HomeScreen>
           body: Row(
             children: [
               // ── Sidebar ──────────────────────────────────────────────
-              SizedBox(
-                width: 200,
-                child: Container(
-                  color: sidebarBg,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Brand mark
-                      Container(
-                        height: 56,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Row(
-                          children: [
-                            Image.asset('assets/icon.png', width: 22, height: 22),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Redmine',
-                              style: AppText.bodySemibold(dark: dark),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                width: collapsed ? 64 : 232,
+                color: sidebarBg,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Brand mark
+                    SizedBox(
+                      height: 56,
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 21),
+                          Image.asset('assets/icon.png', width: 22, height: 22),
+                          const SizedBox(width: 8),
+                          if (!collapsed)
+                            Expanded(
+                              child: Text(
+                                'Redmine Monitor',
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.fade,
+                                style: AppText.bodySemibold(dark: dark),
+                              ),
                             ),
-                          ],
-                        ),
+                        ],
                       ),
-                      Container(height: 1, color: borderColor),
-                      const SizedBox(height: 8),
-                      // Nav items
-                      _NavItem(
-                        icon: Icons.podcasts_outlined,
-                        activeIcon: Icons.podcasts,
-                        label: 'Monitoração',
-                        selected: _selectedIndex == 0,
-                        dark: dark,
-                        onTap: () => setState(() => _selectedIndex = 0),
+                    ),
+                    Container(height: 1, color: borderColor),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        children: [
+                          _SectionLabel('Geral', dark: dark),
+                          _navItem(
+                            _Page.monitoring,
+                            Icons.podcasts_outlined,
+                            Icons.podcasts,
+                            'Monitoração',
+                            dark,
+                            badge: unreadAlerts,
+                          ),
+                          _navItem(
+                            _Page.queries,
+                            Icons.query_stats_outlined,
+                            Icons.query_stats,
+                            'Consultas',
+                            dark,
+                            badge: failedQueries,
+                            badgeColor: AppColors.orange,
+                          ),
+                        ],
                       ),
-                      _NavItem(
-                        icon: Icons.query_stats_outlined,
-                        activeIcon: Icons.query_stats,
-                        label: 'Consultas',
-                        selected: _selectedIndex == 1,
-                        dark: dark,
-                        onTap: () => setState(() => _selectedIndex = 1),
-                      ),
-                      _NavItem(
-                        icon: Icons.tune_outlined,
-                        activeIcon: Icons.tune,
-                        label: 'Configuração',
-                        selected: _selectedIndex == 2,
-                        dark: dark,
-                        onTap: () => setState(() => _selectedIndex = 2),
-                      ),
-                      _NavItem(
-                        icon: Icons.receipt_long_outlined,
-                        activeIcon: Icons.receipt_long,
-                        label: 'Logs',
-                        selected: _selectedIndex == 3,
-                        dark: dark,
-                        onTap: () => setState(() => _selectedIndex = 3),
-                      ),
-                    ],
-                  ),
+                    ),
+                    Container(height: 1, color: borderColor),
+                    const SizedBox(height: 6),
+                    _navItem(_Page.settings, Icons.tune_outlined, Icons.tune, 'Configuração', dark),
+                    _navItem(
+                      _Page.logs,
+                      Icons.receipt_long_outlined,
+                      Icons.receipt_long,
+                      'Logs',
+                      dark,
+                    ),
+                    _NavItem(
+                      icon: collapsed
+                          ? Icons.keyboard_double_arrow_right
+                          : Icons.keyboard_double_arrow_left,
+                      label: 'Recolher menu',
+                      tooltip: collapsed ? 'Expandir menu' : 'Recolher menu',
+                      selected: false,
+                      dark: dark,
+                      onTap: () => setState(() => _collapsed = !collapsed),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
                 ),
               ),
 
@@ -184,6 +206,8 @@ class _HomeScreenState extends State<HomeScreen>
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Row(
                         children: [
+                          Text(_pageTitle, style: AppText.bodySemibold(dark: dark)),
+                          const SizedBox(width: 12),
                           if (!appState.isProductionDatabase)
                             _EnvironmentBadge(
                               environment: appState.databaseEnvironment,
@@ -193,8 +217,7 @@ class _HomeScreenState extends State<HomeScreen>
                           const Spacer(),
                           if (hasConfiguredAccount) ...[
                             Icon(Icons.account_circle_outlined,
-                                size: 16,
-                                color: dark ? AppColors.darkMuted : AppColors.warmDark),
+                                size: 16, color: dark ? AppColors.darkMuted : AppColors.warmDark),
                             const SizedBox(width: 6),
                             Text(
                               accountLabel,
@@ -208,8 +231,7 @@ class _HomeScreenState extends State<HomeScreen>
                               icon: const Icon(Icons.logout, size: 16),
                               label: const Text('Sair'),
                               style: TextButton.styleFrom(
-                                foregroundColor:
-                                    dark ? AppColors.darkMuted : AppColors.warmDark,
+                                foregroundColor: dark ? AppColors.darkMuted : AppColors.warmDark,
                                 padding: const EdgeInsets.symmetric(horizontal: 10),
                               ),
                             ),
@@ -222,7 +244,7 @@ class _HomeScreenState extends State<HomeScreen>
                     // Content
                     Expanded(
                       child: IndexedStack(
-                        index: _selectedIndex,
+                        index: _page.index,
                         children: const [
                           _MonitoringTab(),
                           _QueriesTab(),
@@ -238,6 +260,34 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         );
       },
+    );
+  }
+
+  String get _pageTitle => switch (_page) {
+        _Page.monitoring => 'Monitoração',
+        _Page.queries => 'Consultas',
+        _Page.settings => 'Configuração',
+        _Page.logs => 'Logs',
+      };
+
+  Widget _navItem(
+    _Page page,
+    IconData icon,
+    IconData activeIcon,
+    String label,
+    bool dark, {
+    int badge = 0,
+    Color badgeColor = AppColors.notionBlue,
+  }) {
+    final selected = _page == page;
+    return _NavItem(
+      icon: selected ? activeIcon : icon,
+      label: label,
+      selected: selected,
+      dark: dark,
+      badge: badge > 0 ? '$badge' : null,
+      badgeColor: badgeColor,
+      onTap: () => setState(() => _page = page),
     );
   }
 
@@ -327,22 +377,56 @@ class _EnvironmentBadge extends StatelessWidget {
 
 // ─── Nav item ────────────────────────────────────────────────────────────────
 
+/// Pages that live in the main [IndexedStack]; order = stack index.
+enum _Page { monitoring, queries, settings, logs }
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text, {required this.dark});
+  final String text;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth < 120
+          ? const SizedBox(height: 12)
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 12, 6),
+              child: Text(
+                text.toUpperCase(),
+                maxLines: 1,
+                style: AppText.microLabel(dark: dark).copyWith(
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ),
+    );
+  }
+}
+
+/// Sidebar entry. Shows only the icon (label in a tooltip) when the sidebar
+/// is too narrow, so it adapts while the width animates.
 class _NavItem extends StatefulWidget {
   const _NavItem({
     required this.icon,
-    required this.activeIcon,
     required this.label,
     required this.selected,
     required this.dark,
     required this.onTap,
+    this.tooltip,
+    this.badge,
+    this.badgeColor = AppColors.notionBlue,
   });
 
   final IconData icon;
-  final IconData activeIcon;
   final String label;
+  final String? tooltip;
   final bool selected;
   final bool dark;
   final VoidCallback onTap;
+  final String? badge;
+  final Color badgeColor;
 
   @override
   State<_NavItem> createState() => _NavItemState();
@@ -355,15 +439,11 @@ class _NavItemState extends State<_NavItem> {
   Widget build(BuildContext context) {
     final isActive = widget.selected;
     final inactiveColor = widget.dark ? AppColors.darkMuted : AppColors.warmDark;
-    final iconColor = isActive
+    final hoverColor = widget.dark ? AppColors.pureWhite : AppColors.notionBlack;
+    final color = isActive
         ? AppColors.notionBlue
         : _hovered
-            ? (widget.dark ? AppColors.pureWhite : AppColors.notionBlack)
-            : inactiveColor;
-    final textColor = isActive
-        ? AppColors.notionBlue
-        : _hovered
-            ? (widget.dark ? AppColors.pureWhite : AppColors.notionBlack)
+            ? hoverColor
             : inactiveColor;
     final bgColor = isActive
         ? AppColors.notionBlue.withValues(alpha: 0.08)
@@ -371,38 +451,73 @@ class _NavItemState extends State<_NavItem> {
             ? AppColors.hoverBg
             : Colors.transparent;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(AppRadius.subtle),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                isActive ? widget.activeIcon : widget.icon,
-                size: 16,
-                color: iconColor,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                widget.label,
-                style: AppText.navButton(dark: widget.dark).copyWith(
-                  color: textColor,
-                  fontSize: 13,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 120;
+        final badge = widget.badge == null
+            ? null
+            : Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                constraints: const BoxConstraints(minWidth: 18),
+                decoration: BoxDecoration(
+                  color: widget.badgeColor,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
                 ),
+                child: Text(
+                  widget.badge!,
+                  textAlign: TextAlign.center,
+                  style: AppText.badge().copyWith(color: AppColors.pureWhite, fontSize: 10),
+                ),
+              );
+        final icon = Icon(widget.icon, size: 18, color: color);
+
+        return Tooltip(
+          message: compact ? (widget.tooltip ?? widget.label) : '',
+          waitDuration: const Duration(milliseconds: 300),
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: widget.onTap,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(AppRadius.subtle),
+                ),
+                child: compact
+                    ? Badge(
+                        isLabelVisible: badge != null,
+                        backgroundColor: widget.badgeColor,
+                        smallSize: 8,
+                        child: icon,
+                      )
+                    : Row(
+                        children: [
+                          icon,
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              widget.label,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.navButton(dark: widget.dark).copyWith(
+                                color: color,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          if (badge != null) badge,
+                        ],
+                      ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -426,15 +541,11 @@ class _ErrorScreen extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.warning_amber_outlined,
-                    size: 40, color: AppColors.orange),
+                const Icon(Icons.warning_amber_outlined, size: 40, color: AppColors.orange),
                 const SizedBox(height: Sp.s16),
-                Text('Falha ao inicializar',
-                    style: AppText.cardTitle(dark: dark)),
+                Text('Falha ao inicializar', style: AppText.cardTitle(dark: dark)),
                 const SizedBox(height: Sp.s8),
-                Text(error,
-                    textAlign: TextAlign.center,
-                    style: AppText.captionLight(dark: dark)),
+                Text(error, textAlign: TextAlign.center, style: AppText.captionLight(dark: dark)),
                 const SizedBox(height: Sp.s24),
                 FilledButton(
                   onPressed: onRetry,
@@ -531,9 +642,7 @@ class _HeroHeader extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      appState.monitoring
-                          ? 'Monitoração ativa'
-                          : 'Monitoração pausada',
+                      appState.monitoring ? 'Monitoração ativa' : 'Monitoração pausada',
                       style: AppText.cardTitle(dark: dark),
                     ),
                     const SizedBox(height: Sp.s4),
@@ -560,9 +669,7 @@ class _HeroHeader extends StatelessWidget {
             children: [
               _MetricPill(label: 'Consultas ativas', value: '$activeQueries'),
               _MetricPill(label: 'Alertas', value: '${appState.alerts.length}'),
-              _MetricPill(
-                  label: 'Logs',
-                  value: '${appState.monitorLogs.length}'),
+              _MetricPill(label: 'Logs', value: '${appState.monitorLogs.length}'),
             ],
           ),
         ],
@@ -614,8 +721,7 @@ class _MetricPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: Sp.s8, vertical: Sp.s4),
+      padding: const EdgeInsets.symmetric(horizontal: Sp.s8, vertical: Sp.s4),
       decoration: BoxDecoration(
         color: AppColors.badgeBlueBg,
         borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -629,8 +735,7 @@ class _MetricPill extends StatelessWidget {
             TextSpan(text: '$label: '),
             TextSpan(
               text: value,
-              style: AppText.badge()
-                  .copyWith(color: AppColors.badgeBlueText),
+              style: AppText.badge().copyWith(color: AppColors.badgeBlueText),
             ),
           ],
         ),
