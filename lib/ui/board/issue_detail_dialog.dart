@@ -6,10 +6,11 @@ import '../../models/redmine_issue.dart';
 import '../../services/redmine_api_service.dart';
 import '../../services/theme_service.dart';
 import '../../state/app_state.dart';
+import '../components.dart';
 import '../ui_utils.dart';
 
 Future<void> showIssueDetail(BuildContext context, RedmineIssue issue) =>
-    showDialog<void>(context: context, builder: (_) => IssueDetailDialog(issue: issue));
+    showAppDialog<void>(context, (_) => IssueDetailDialog(issue: issue));
 
 /// Issue details: opens with the list data and loads history/attachments.
 class IssueDetailDialog extends StatefulWidget {
@@ -66,86 +67,82 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
     final border = AppColors.border(dark: dark);
     final screen = MediaQuery.sizeOf(context);
 
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.all(Sp.s24),
-      child: Container(
-        width: screen.width * 0.85,
-        constraints: BoxConstraints(maxHeight: screen.height * 0.88),
-        decoration: surfaceCard(dark: dark),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 12, 4),
-              child: Row(
-                children: [
-                  if (issue.trackerName.isNotEmpty) ...[
-                    LabelPill(issue.trackerName),
-                    const SizedBox(width: Sp.s8),
-                  ],
-                  Text('#${issue.id}', style: AppText.caption(dark: dark)),
-                  const SizedBox(width: Sp.s8),
-                  LabelPill(issue.statusName, color: AppColors.warmGray500),
-                  const Spacer(),
-                  FilledButton.tonalIcon(
-                    onPressed: () => openRedmineLink(context, '/issues/${issue.id}'),
-                    icon: const Icon(Icons.open_in_new, size: 16),
-                    label: const Text('Abrir no Redmine'),
-                  ),
-                  IconButton(
-                    tooltip: 'Fechar',
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, size: 18),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
-              child: SelectableText(issue.subject, style: AppText.cardTitle(dark: dark)),
-            ),
-            Container(height: 1, color: border),
-            Flexible(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final main = _mainContent(issue, dark);
-                  final side = _attributes(issue, dark);
-                  if (constraints.maxWidth < 700) {
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [main, const SizedBox(height: Sp.s24), side],
-                      ),
-                    );
-                  }
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(20),
-                          child: main,
-                        ),
-                      ),
-                      Container(width: 1, color: border),
-                      SizedBox(
-                        width: 260,
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(20),
-                          child: side,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
+    return AppDialog(
+      width: screen.width * 0.85,
+      scrollable: false,
+      bodyPadding: EdgeInsets.zero,
+      title: Text('Tarefa #${issue.id}'),
+      headActions: [
+        FilledButton.icon(
+          onPressed: () => openRedmineLink(context, '/issues/${issue.id}'),
+          icon: const Icon(Icons.open_in_new, size: 16),
+          label: const Text('Abrir no Redmine'),
         ),
+      ],
+      body: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SelectableText(
+                  issue.subject,
+                  style: AppText.cardTitle(dark: dark).copyWith(height: 1.6),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (issue.trackerName.isNotEmpty) Tag.hashed(issue.trackerName),
+                    Tag(issue.statusName),
+                    Tag(issue.priorityName),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Container(height: 1, color: border),
+          Flexible(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final main = _mainContent(issue, dark);
+                final side = _attributes(issue, dark);
+                if (constraints.maxWidth < 700) {
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(22),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [main, const SizedBox(height: Sp.s24), side],
+                    ),
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(22),
+                        child: main,
+                      ),
+                    ),
+                    Container(width: 1, color: border),
+                    SizedBox(
+                      width: 280,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(22),
+                        child: side,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -169,7 +166,7 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
         h2: AppText.bodyLarge(dark: dark).copyWith(fontWeight: FontWeight.w600),
         h3: AppText.bodySemibold(dark: dark),
         h4: AppText.bodySemibold(dark: dark),
-        a: body.copyWith(color: AppColors.notionBlue),
+        a: body.copyWith(color: AppColors.accent(dark: dark)),
         code: body.copyWith(
           fontFamily: 'monospace',
           fontSize: 13,
@@ -193,7 +190,7 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
       imageBuilder: (uri, title, alt) {
         final name = uri.pathSegments.isEmpty ? '$uri' : uri.pathSegments.last;
         return TextButton.icon(
-          style: TextButton.styleFrom(foregroundColor: AppColors.notionBlue),
+          style: TextButton.styleFrom(foregroundColor: AppColors.accent(dark: dark)),
           onPressed: () => openRedmineLink(context, attachments[name] ?? '$uri'),
           icon: const Icon(Icons.image_outlined, size: 16),
           label: Text(alt?.isNotEmpty == true ? alt! : name),
@@ -238,7 +235,7 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
           for (final a in attachments)
             TextButton.icon(
               style: TextButton.styleFrom(
-                foregroundColor: AppColors.notionBlue,
+                foregroundColor: AppColors.accent(dark: dark),
                 padding: EdgeInsets.zero,
                 alignment: Alignment.centerLeft,
               ),
@@ -261,7 +258,7 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
         else if (_error != null)
           Text(
             'Não foi possível carregar o histórico: $_error',
-            style: AppText.caption(dark: dark).copyWith(color: AppColors.orange),
+            style: AppText.caption(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
           )
         else if (journals.isEmpty)
           Text('Sem histórico.', style: AppText.captionLight(dark: dark))

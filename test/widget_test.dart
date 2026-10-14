@@ -12,6 +12,7 @@ import 'package:redmine_monitor_flutter/services/database_service.dart';
 import 'package:redmine_monitor_flutter/services/redmine_api_service.dart';
 import 'package:redmine_monitor_flutter/state/app_state.dart';
 import 'package:redmine_monitor_flutter/ui/board/board_view.dart';
+import 'package:redmine_monitor_flutter/ui/components.dart';
 import 'package:redmine_monitor_flutter/ui/ui_utils.dart';
 import 'package:redmine_monitor_flutter/ui/widgets/query_form_dialog.dart';
 
@@ -157,11 +158,13 @@ void main() {
 
     // No Redmine configured: the saved-query list fails and the form goes manual.
     expect(find.textContaining('Não foi possível carregar'), findsOneWidget);
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'URL da consulta no Redmine'),
-      '/issues?assigned_to_id=me',
-    );
-    await tester.enterText(find.widgetWithText(TextFormField, 'Nome'), 'Fila do dev');
+    // Labels sit above the inputs (LabeledField), so find the field under each label.
+    Finder field(String label) => find.descendant(
+          of: find.ancestor(of: find.text(label), matching: find.byType(LabeledField)),
+          matching: find.byType(TextFormField),
+        );
+    await tester.enterText(field('URL da consulta no Redmine'), '/issues?assigned_to_id=me');
+    await tester.enterText(field('Nome da consulta'), 'Fila do dev');
 
     await tester.ensureVisible(find.text('Adicionar regra'));
     await tester.tap(find.text('Adicionar regra'));
@@ -181,7 +184,7 @@ void main() {
 
     expect(saved?.name, 'Fila do dev');
     expect(saved?.endpoint, '/issues.json?assigned_to_id=me');
-    expect(saved?.alertRules.map((r) => r.label), ['↕ Qualquer', '= 1']);
+    expect(saved?.alertRules.map((r) => r.label), ['Qualquer mudança', '= 1']);
   });
 
   test('time entries sum by person/day and by activity', () {

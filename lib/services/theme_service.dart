@@ -1,13 +1,10 @@
-// Design system + theme service for Redmine Monitor.
+// Design tokens + ThemeData for Redmine Monitor.
 //
-// All design tokens (colors, typography, radii, shadows, spacing) and the
-// Flutter ThemeData builder live here. Import this file from every UI file.
-//
-// Dark-mode muted text
-// ─────────────────────
-// gray300 (#A39E98) was too low-contrast on dark surfaces (#1A1917 / #242220).
-// Dark-mode muted text now uses darkMuted (#C8C4BF) for readable contrast
-// while staying visually secondary relative to primary white (#FFFFFF).
+// Dark theme = the approved prototype (slate surfaces, aqua accent #46D4BD).
+// Light theme = the same identity on light surfaces, with a darker accent
+// (#0B7A6A) so accent text keeps >= 4.5:1 contrast on white.
+// Widgets read colors through the theme-aware accessors below
+// (`AppColors.accent(dark: dark)` …), never through hard-coded hex values.
 
 import 'package:flutter/material.dart';
 
@@ -16,97 +13,125 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  // Core
-  static const Color black      = Color(0xF2000000); // rgba(0,0,0,0.95)
-  static const Color white      = Color(0xFFFFFFFF);
-  static const Color blue       = Color(0xFF0075DE);
-  static const Color blueActive = Color(0xFF005BAB);
-  static const Color blueFocus  = Color(0xFF097FE8);
+  static const Color white = Color(0xFFFFFFFF);
 
-  // Warm neutrals — light
-  static const Color warmWhite = Color(0xFFF6F5F4);
-  static const Color warmDark  = Color(0xFF31302E);
-  static const Color gray500   = Color(0xFF615D59); // muted text, light mode
-  static const Color gray300   = Color(0xFFA39E98); // placeholder / hint
+  // Accent
+  static Color accent({required bool dark}) =>
+      dark ? const Color(0xFF46D4BD) : const Color(0xFF0B7A6A);
+  static Color onAccent({required bool dark}) => dark ? const Color(0xFF092B26) : white;
+  static Color accentHover({required bool dark}) =>
+      dark ? const Color(0xFF6CE2CD) : const Color(0xFF096A5C);
 
-  // Warm neutrals — dark (higher luminance for legibility on dark surfaces)
-  static const Color darkMuted = Color(0xFFC8C4BF); // muted text, dark mode
+  /// Selected nav item / unread icon box.
+  static Color accentSoft({required bool dark}) =>
+      dark ? const Color(0xFF213630) : const Color(0xFFE3F4F0);
 
-  // Badge
-  static const Color badgeBlueBg   = Color(0xFFF2F9FF);
-  static const Color badgeBlueText = Color(0xFF097FE8);
+  /// Filter chips.
+  static Color chip({required bool dark}) =>
+      dark ? const Color(0xFF223B35) : const Color(0xFFDDF1EC);
 
-  // Semantic
-  static const Color teal     = Color(0xFF2A9D99);
-  static const Color green    = Color(0xFF1AAE39);
-  static const Color orange   = Color(0xFFDD5B00);
-  static const Color pink     = Color(0xFFFF64C8);
-  static const Color deepNavy = Color(0xFF213183);
+  /// Active tab inside [AppTabs].
+  static Color tabActive({required bool dark}) =>
+      dark ? const Color(0xFF2D403B) : const Color(0xFFD5EDE7);
 
-  // Borders
-  static const Color borderLight = Color(0x1A000000); // rgba(0,0,0,0.10)
-  static const Color borderInput = Color(0xFFDDDDDD);
+  // Surfaces
+  static Color page({required bool dark}) =>
+      dark ? const Color(0xFF101419) : const Color(0xFFF3F5F8);
+  static Color sidebar({required bool dark}) =>
+      dark ? const Color(0xFF141920) : const Color(0xFFF8FAFC);
+  static Color panel({required bool dark}) => dark ? const Color(0xFF191F27) : white;
+  static Color field({required bool dark}) => dark ? const Color(0xFF202833) : white;
+  static Color fieldHover({required bool dark}) =>
+      dark ? const Color(0xFF26323E) : const Color(0xFFF1F4F7);
 
-  // Interactive states
-  static const Color hoverBg   = Color(0x0D000000); // rgba(0,0,0,0.05)
-  static const Color pressedBg = Color(0x1A000000); // rgba(0,0,0,0.10)
+  /// Table headers.
+  static Color sunken({required bool dark}) =>
+      dark ? const Color(0xFF161C23) : const Color(0xFFEEF1F5);
 
-  // Dark-mode surfaces
-  static const Color darkSurface = Color(0xFF1A1917);
-  static const Color darkCard    = Color(0xFF242220);
-  static const Color darkBorder  = Color(0x26FFFFFF); // rgba(255,255,255,0.15)
+  /// Tab tracks, code blocks.
+  static Color well({required bool dark}) =>
+      dark ? const Color(0xFF11171E) : const Color(0xFFE9EDF2);
 
-  // ── Legacy aliases (kept for backward compat — prefer canonical names) ──────
-  static const Color notionBlue    = blue;
-  static const Color notionBlack   = black;
-  static const Color pureWhite     = white;
-  static const Color warmGray500   = gray500;
-  static const Color warmGray300   = gray300;
-  static const Color focusBlue     = blueFocus;
-  static const Color whisperBorder = borderLight;
-  static const Color inputBorder   = borderInput;
+  /// Table footers (totals).
+  static Color footer({required bool dark}) =>
+      dark ? const Color(0xFF202A32) : const Color(0xFFEEF1F5);
+  static Color column({required bool dark}) =>
+      dark ? const Color(0xFF151C24) : const Color(0xFFEEF1F5);
+  static Color columnBorder({required bool dark}) =>
+      dark ? const Color(0xFF252F3A) : const Color(0xFFDFE4EA);
+  static Color hover({required bool dark}) =>
+      dark ? const Color(0xFF1D2630) : const Color(0xFFEEF2F6);
+  static Color cellHover({required bool dark}) =>
+      dark ? const Color(0xFF244139) : const Color(0xFFDCEFEA);
+  static Color cellSelected({required bool dark}) =>
+      dark ? const Color(0xFF25483F) : const Color(0xFFCDEAE3);
+  static Color iconBox({required bool dark}) =>
+      dark ? const Color(0xFF253B43) : const Color(0xFFE3EEF2);
+  static Color iconBoxIcon({required bool dark}) =>
+      dark ? const Color(0xFF8CCCDC) : const Color(0xFF2B6B7D);
 
-  /// Muted text color that adapts to brightness.
-  static Color mutedText({required bool dark}) => dark ? darkMuted : gray500;
+  // Lines and text
+  static Color border({required bool dark}) =>
+      dark ? const Color(0xFF2B3440) : const Color(0xFFDFE4EA);
+  static Color borderStrong({required bool dark}) =>
+      dark ? const Color(0xFF526477) : const Color(0xFFB8C2CE);
+  static Color dialogBorder({required bool dark}) =>
+      dark ? const Color(0xFF405361) : const Color(0xFFCBD3DC);
+  static Color text({required bool dark}) =>
+      dark ? const Color(0xFFEDF2F7) : const Color(0xFF111820);
+  static Color mutedText({required bool dark}) =>
+      dark ? const Color(0xFF96A3B3) : const Color(0xFF5B6878);
+  static Color sectionText({required bool dark}) =>
+      dark ? const Color(0xFFC8D6E2) : const Color(0xFF2B3A4A);
+  static Color statIcon({required bool dark}) =>
+      dark ? const Color(0xFF6C8999) : const Color(0xFF8798A8);
+  static Color danger({required bool dark}) =>
+      dark ? const Color(0xFFFFAAA6) : const Color(0xFFB4232C);
 
-  /// Border color that adapts to brightness.
-  static Color border({required bool dark}) => dark ? darkBorder : borderLight;
+  /// Left border of log rows, per level.
+  static Color logLevel(String level) => switch (level) {
+        'success' => const Color(0xFF58AD87),
+        'error' => const Color(0xFFCC7B89),
+        'alert' => const Color(0xFFA78CCC),
+        'warn' => const Color(0xFFD7A75A),
+        _ => const Color(0xFF587AAB),
+      };
+
+  /// (background, foreground) of a soft [Tag].
+  static (Color, Color) tone(TagTone tone, {required bool dark}) => dark
+      ? switch (tone) {
+          TagTone.neutral => (const Color(0xFF283340), const Color(0xFFB9C8D7)),
+          TagTone.green => (const Color(0xFF223C32), const Color(0xFF95DFB6)),
+          TagTone.amber => (const Color(0xFF403725), const Color(0xFFE9C78E)),
+          TagTone.red => (const Color(0xFF422C33), const Color(0xFFF4A6B7)),
+          TagTone.purple => (const Color(0xFF342C46), const Color(0xFFC5AFEA)),
+          TagTone.blue => (const Color(0xFF263A4B), const Color(0xFF9BC7ED)),
+          TagTone.accent => (const Color(0xFF223B35), const Color(0xFF46D4BD)),
+        }
+      : switch (tone) {
+          TagTone.neutral => (const Color(0xFFE8EDF2), const Color(0xFF3D4B5C)),
+          TagTone.green => (const Color(0xFFDDF3E7), const Color(0xFF1E6B45)),
+          TagTone.amber => (const Color(0xFFFBF0DA), const Color(0xFF7A5410)),
+          TagTone.red => (const Color(0xFFFBE3E7), const Color(0xFF9B2335)),
+          TagTone.purple => (const Color(0xFFEEE7FA), const Color(0xFF5B3F8F)),
+          TagTone.blue => (const Color(0xFFE1EEF9), const Color(0xFF1F5A8A)),
+          TagTone.accent => (const Color(0xFFDDF1EC), const Color(0xFF0B7A6A)),
+        };
 }
 
-// ─── Shadows ─────────────────────────────────────────────────────────────────
-
-class AppShadows {
-  AppShadows._();
-
-  /// 4-layer soft card shadow (max opacity 0.04)
-  static const List<BoxShadow> card = [
-    BoxShadow(color: Color(0x0A000000), blurRadius: 18,   offset: Offset(0, 4)),
-    BoxShadow(color: Color(0x07000000), blurRadius: 7.85, offset: Offset(0, 2.025)),
-    BoxShadow(color: Color(0x05000000), blurRadius: 2.93, offset: Offset(0, 0.8)),
-    BoxShadow(color: Color(0x03000000), blurRadius: 1.04, offset: Offset(0, 0.175)),
-  ];
-
-  /// 5-layer deep shadow for modals (max opacity 0.05)
-  static const List<BoxShadow> deep = [
-    BoxShadow(color: Color(0x03000000), blurRadius: 3,  offset: Offset(0, 1)),
-    BoxShadow(color: Color(0x05000000), blurRadius: 7,  offset: Offset(0, 3)),
-    BoxShadow(color: Color(0x05000000), blurRadius: 15, offset: Offset(0, 7)),
-    BoxShadow(color: Color(0x0A000000), blurRadius: 28, offset: Offset(0, 14)),
-    BoxShadow(color: Color(0x0D000000), blurRadius: 52, offset: Offset(0, 23)),
-  ];
-}
+enum TagTone { neutral, green, amber, red, purple, blue, accent }
 
 // ─── Radii ───────────────────────────────────────────────────────────────────
 
 class AppRadius {
   AppRadius._();
 
-  static const double micro       = 4;    // buttons, inputs
-  static const double subtle      = 5;    // links, list items
-  static const double standard    = 8;    // small cards, inline
-  static const double comfortable = 12;   // standard cards
-  static const double large       = 16;   // hero cards
-  static const double pill        = 9999; // badges, pills
+  static const double micro = 4;
+  static const double subtle = 5; // tags, chips
+  static const double standard = 8; // controls, icon boxes
+  static const double comfortable = 12; // panels
+  static const double dialog = 14;
+  static const double pill = 9999;
 }
 
 // ─── Typography ──────────────────────────────────────────────────────────────
@@ -114,111 +139,80 @@ class AppRadius {
 class AppText {
   AppText._();
 
-  static const String _family = 'Inter';
-  static const String fontFamily = _family;
+  static const String fontFamily = 'Inter';
 
-  static TextStyle display({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 64, fontWeight: FontWeight.w700,
-        height: 1.00, letterSpacing: -2.125,
-        color: dark ? AppColors.white : AppColors.black,
+  static TextStyle _t(double size, FontWeight weight, Color color,
+          {double height = 1.5, double spacing = 0}) =>
+      TextStyle(
+        fontFamily: fontFamily,
+        fontSize: size,
+        fontWeight: weight,
+        height: height,
+        letterSpacing: spacing,
+        color: color,
       );
 
-  static TextStyle displaySecondary({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 54, fontWeight: FontWeight.w700,
-        height: 1.04, letterSpacing: -1.875,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  /// h1 — page title.
+  static TextStyle pageTitle({bool dark = false}) =>
+      _t(28, FontWeight.w700, AppColors.text(dark: dark), height: 1.2, spacing: -0.7);
 
-  static TextStyle sectionHeading({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 48, fontWeight: FontWeight.w700,
-        height: 1.00, letterSpacing: -1.5,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  /// 29px KPI value.
+  static TextStyle kpi({bool dark = false}) =>
+      _t(29, FontWeight.w700, AppColors.text(dark: dark), height: 1.15, spacing: -1);
 
-  static TextStyle subHeadingLarge({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 40, fontWeight: FontWeight.w700,
-        height: 1.50,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  /// h2 — panel and section titles.
+  static TextStyle cardTitle({bool dark = false}) =>
+      _t(17, FontWeight.w700, AppColors.text(dark: dark), height: 1.35);
 
-  static TextStyle subHeading({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 26, fontWeight: FontWeight.w700,
-        height: 1.23, letterSpacing: -0.625,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  /// Dialog titles and emphasized headings.
+  static TextStyle bodyLarge({bool dark = false}) =>
+      _t(17, FontWeight.w600, AppColors.text(dark: dark), height: 1.4);
 
-  static TextStyle cardTitle({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 22, fontWeight: FontWeight.w700,
-        height: 1.27, letterSpacing: -0.25,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  static TextStyle body({bool dark = false}) =>
+      _t(14, FontWeight.w400, AppColors.text(dark: dark), height: 1.6);
 
-  static TextStyle bodyLarge({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 20, fontWeight: FontWeight.w600,
-        height: 1.40, letterSpacing: -0.125,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  static TextStyle bodyMedium({bool dark = false}) =>
+      _t(14, FontWeight.w500, AppColors.text(dark: dark), height: 1.6);
 
-  static TextStyle body({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 16, fontWeight: FontWeight.w400,
-        height: 1.50,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  static TextStyle bodySemibold({bool dark = false}) =>
+      _t(14, FontWeight.w600, AppColors.text(dark: dark), height: 1.6);
 
-  static TextStyle bodyMedium({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 16, fontWeight: FontWeight.w500,
-        height: 1.50,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  static TextStyle navButton({bool dark = false}) =>
+      _t(13, FontWeight.w500, AppColors.text(dark: dark), height: 1.35);
 
-  static TextStyle bodySemibold({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 16, fontWeight: FontWeight.w600,
-        height: 1.50,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  /// 12px medium — field labels.
+  static TextStyle caption({bool dark = false}) =>
+      _t(12, FontWeight.w500, AppColors.mutedText(dark: dark), height: 1.45);
 
-  static TextStyle navButton({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 15, fontWeight: FontWeight.w600,
-        height: 1.33,
-        color: dark ? AppColors.white : AppColors.black,
-      );
+  /// 13px regular — subtitles and helper text.
+  static TextStyle captionLight({bool dark = false}) =>
+      _t(13, FontWeight.w400, AppColors.mutedText(dark: dark), height: 1.6);
 
-  /// 14px medium — section labels, field headings.
-  static TextStyle caption({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 14, fontWeight: FontWeight.w500,
-        height: 1.43,
-        color: AppColors.mutedText(dark: dark),
-      );
-
-  /// 14px regular — helper text, subtitles.
-  static TextStyle captionLight({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 14, fontWeight: FontWeight.w400,
-        height: 1.43,
-        color: AppColors.mutedText(dark: dark),
-      );
-
-  /// 12px badge label — color must be set by the caller.
+  /// 11px tag text — color set by the caller.
   static TextStyle badge() => const TextStyle(
-        fontFamily: _family, fontSize: 12, fontWeight: FontWeight.w600,
-        height: 1.33, letterSpacing: 0.125,
+        fontFamily: fontFamily,
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
       );
 
-  /// 12px micro text — timestamps, meta, hints.
-  static TextStyle microLabel({bool dark = false}) => TextStyle(
-        fontFamily: _family, fontSize: 12, fontWeight: FontWeight.w400,
-        height: 1.33, letterSpacing: 0.125,
-        color: AppColors.mutedText(dark: dark),
-      );
+  /// 12px meta text — timestamps, hints.
+  static TextStyle microLabel({bool dark = false}) =>
+      _t(12, FontWeight.w400, AppColors.mutedText(dark: dark), height: 1.6);
+
+  /// 10px spaced uppercase label (sidebar sections).
+  static TextStyle sectionLabel({bool dark = false}) =>
+      _t(10, FontWeight.w600, AppColors.mutedText(dark: dark), height: 1.3, spacing: 1.5);
 }
 
 // ─── Spacing ─────────────────────────────────────────────────────────────────
 
 class Sp {
   Sp._();
-  static const double s2  = 2;
-  static const double s4  = 4;
-  static const double s6  = 6;
-  static const double s8  = 8;
+  static const double s2 = 2;
+  static const double s4 = 4;
+  static const double s6 = 6;
+  static const double s8 = 8;
   static const double s12 = 12;
   static const double s16 = 16;
   static const double s24 = 24;
@@ -229,287 +223,229 @@ class Sp {
 
 // ─── Decoration helpers ───────────────────────────────────────────────────────
 
+/// Flat panel: surface, 1px border, radius 12, no shadow.
 BoxDecoration surfaceCard({bool dark = false}) => BoxDecoration(
-      color: dark ? AppColors.darkCard : AppColors.white,
+      color: AppColors.panel(dark: dark),
       border: Border.all(color: AppColors.border(dark: dark)),
       borderRadius: BorderRadius.circular(AppRadius.comfortable),
-      boxShadow: AppShadows.card,
     );
-
-BoxDecoration surfaceHeroCard({bool dark = false}) => BoxDecoration(
-      color: dark ? AppColors.darkCard : AppColors.white,
-      border: Border.all(color: AppColors.border(dark: dark)),
-      borderRadius: BorderRadius.circular(AppRadius.large),
-      boxShadow: AppShadows.card,
-    );
-
-// ─── ThemeMode resolver ───────────────────────────────────────────────────────
-
-ThemeMode resolveThemeMode(String value) {
-  switch (value) {
-    case 'light':
-      return ThemeMode.light;
-    case 'dark':
-      return ThemeMode.dark;
-    default:
-      return ThemeMode.system;
-  }
-}
 
 // ─── ThemeData builder ────────────────────────────────────────────────────────
 
 ThemeData buildAppTheme({required bool dark}) {
-  final bg          = dark ? AppColors.darkSurface : AppColors.warmWhite;
-  final cardBg      = dark ? AppColors.darkCard    : AppColors.white;
-  final borderColor = AppColors.border(dark: dark);
-  final mutedColor  = AppColors.mutedText(dark: dark);
+  final accent = AppColors.accent(dark: dark);
+  final onAccent = AppColors.onAccent(dark: dark);
+  final text = AppColors.text(dark: dark);
+  final muted = AppColors.mutedText(dark: dark);
+  final border = AppColors.border(dark: dark);
+  final panel = AppColors.panel(dark: dark);
+  final controlShape = WidgetStateProperty.all(
+    RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.standard)),
+  );
+  OutlineInputBorder inputBorder(Color color, [double width = 1]) => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.standard),
+        borderSide: BorderSide(color: color, width: width),
+      );
+  const buttonText = TextStyle(fontFamily: AppText.fontFamily, fontSize: 14);
 
   return ThemeData(
     useMaterial3: true,
     fontFamily: AppText.fontFamily,
     brightness: dark ? Brightness.dark : Brightness.light,
-    scaffoldBackgroundColor: bg,
-    colorScheme: dark
-        ? const ColorScheme.dark(
-            primary:   AppColors.blue,
-            onPrimary: AppColors.white,
-            secondary: AppColors.teal,
-            surface:   AppColors.darkCard,
-            onSurface: AppColors.white,
-            outline:   AppColors.darkBorder,
-            error:     AppColors.orange,
-          )
-        : const ColorScheme.light(
-            primary:   AppColors.blue,
-            onPrimary: AppColors.white,
-            secondary: AppColors.teal,
-            surface:   AppColors.white,
-            onSurface: AppColors.black,
-            outline:   AppColors.borderLight,
-            error:     AppColors.orange,
-          ),
-
+    scaffoldBackgroundColor: AppColors.page(dark: dark),
+    colorScheme: (dark ? const ColorScheme.dark() : const ColorScheme.light()).copyWith(
+      primary: accent,
+      onPrimary: onAccent,
+      secondary: accent,
+      onSecondary: onAccent,
+      surface: panel,
+      onSurface: text,
+      onSurfaceVariant: muted,
+      outline: border,
+      outlineVariant: border,
+      error: AppColors.danger(dark: dark),
+      surfaceContainerHighest: AppColors.field(dark: dark),
+    ),
+    dividerTheme: DividerThemeData(color: border, thickness: 1, space: 1),
     cardTheme: CardThemeData(
-      color: cardBg,
+      color: panel,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        side: BorderSide(color: borderColor),
+        side: BorderSide(color: border),
         borderRadius: BorderRadius.circular(AppRadius.comfortable),
       ),
     ),
-
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: dark ? const Color(0xFF2A2825) : AppColors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.micro),
-        borderSide: const BorderSide(color: AppColors.borderInput),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.micro),
-        borderSide: BorderSide(color: borderColor),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.micro),
-        borderSide: const BorderSide(color: AppColors.blueFocus, width: 2),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.micro),
-        borderSide: const BorderSide(color: AppColors.orange),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.micro),
-        borderSide: const BorderSide(color: AppColors.orange, width: 2),
-      ),
-      labelStyle: TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 14,
-        fontWeight: FontWeight.w500, color: mutedColor,
-      ),
-      hintStyle: TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 14,
-        fontWeight: FontWeight.w400,
-        color: dark ? AppColors.darkMuted : AppColors.gray300,
-      ),
-      helperStyle: TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 12,
-        fontWeight: FontWeight.w400, color: mutedColor,
-      ),
+      fillColor: AppColors.field(dark: dark),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      border: inputBorder(border),
+      enabledBorder: inputBorder(border),
+      focusedBorder: inputBorder(accent, 1.5),
+      errorBorder: inputBorder(AppColors.danger(dark: dark)),
+      focusedErrorBorder: inputBorder(AppColors.danger(dark: dark), 1.5),
+      labelStyle: AppText.caption(dark: dark).copyWith(fontSize: 13),
+      floatingLabelStyle: AppText.caption(dark: dark).copyWith(color: accent),
+      hintStyle: AppText.captionLight(dark: dark),
+      helperStyle: AppText.microLabel(dark: dark),
+      prefixIconColor: muted,
+      suffixIconColor: muted,
     ),
-
     filledButtonTheme: FilledButtonThemeData(
       style: ButtonStyle(
         backgroundColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.disabled)) return AppColors.gray300;
-          if (states.contains(WidgetState.pressed))  return AppColors.blueActive;
-          return AppColors.blue;
+          if (states.contains(WidgetState.disabled)) return border;
+          if (states.contains(WidgetState.hovered)) return AppColors.accentHover(dark: dark);
+          return accent;
         }),
-        foregroundColor: WidgetStateProperty.all(AppColors.white),
-        textStyle: WidgetStateProperty.all(const TextStyle(
-          fontFamily: AppText.fontFamily,
-          fontSize: 15, fontWeight: FontWeight.w600, height: 1.33,
-        )),
-        padding: WidgetStateProperty.all(
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.disabled) ? muted : onAccent,
         ),
-        shape: WidgetStateProperty.all(RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.micro),
-        )),
+        textStyle: WidgetStateProperty.all(buttonText.copyWith(fontWeight: FontWeight.w700)),
+        padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 14)),
+        minimumSize: WidgetStateProperty.all(const Size(0, 40)),
+        // Desktop defaults to compact density (-8px); keep 40px like the fields.
+        visualDensity: VisualDensity.standard,
+        shape: controlShape,
         elevation: WidgetStateProperty.all(0),
       ),
     ),
-
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: ButtonStyle(
-        backgroundColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.pressed)) return AppColors.pressedBg;
-          if (states.contains(WidgetState.hovered)) return AppColors.hoverBg;
-          return Colors.transparent;
-        }),
-        foregroundColor: WidgetStateProperty.all(
-          dark ? AppColors.white : AppColors.black,
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.hovered)
+              ? AppColors.fieldHover(dark: dark)
+              : Colors.transparent,
         ),
-        side: WidgetStateProperty.all(BorderSide(color: borderColor)),
-        textStyle: WidgetStateProperty.all(const TextStyle(
-          fontFamily: AppText.fontFamily,
-          fontSize: 15, fontWeight: FontWeight.w600,
-        )),
-        padding: WidgetStateProperty.all(
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        foregroundColor: WidgetStateProperty.all(text),
+        side: WidgetStateProperty.resolveWith(
+          (states) => BorderSide(
+            color:
+                states.contains(WidgetState.hovered) ? AppColors.borderStrong(dark: dark) : border,
+          ),
         ),
-        shape: WidgetStateProperty.all(RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.micro),
-        )),
+        textStyle: WidgetStateProperty.all(buttonText.copyWith(fontWeight: FontWeight.w500)),
+        padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 14)),
+        minimumSize: WidgetStateProperty.all(const Size(0, 40)),
+        // Desktop defaults to compact density (-8px); keep 40px like the fields.
+        visualDensity: VisualDensity.standard,
+        shape: controlShape,
         elevation: WidgetStateProperty.all(0),
       ),
     ),
-
     textButtonTheme: TextButtonThemeData(
       style: ButtonStyle(
-        foregroundColor: WidgetStateProperty.all(AppColors.blue),
-        textStyle: WidgetStateProperty.all(const TextStyle(
-          fontFamily: AppText.fontFamily,
-          fontSize: 14, fontWeight: FontWeight.w500,
-        )),
-        padding: WidgetStateProperty.all(
-          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        foregroundColor: WidgetStateProperty.all(accent),
+        textStyle: WidgetStateProperty.all(
+          buttonText.copyWith(fontSize: 13, fontWeight: FontWeight.w500),
         ),
-        shape: WidgetStateProperty.all(RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.micro),
-        )),
-        overlayColor: WidgetStateProperty.all(
-          AppColors.blue.withValues(alpha: 0.08),
-        ),
-        elevation: WidgetStateProperty.all(0),
+        padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 8, vertical: 6)),
+        shape: controlShape,
+        overlayColor: WidgetStateProperty.all(accent.withValues(alpha: 0.08)),
       ),
     ),
-
-    dividerTheme: DividerThemeData(
-      color: borderColor, thickness: 1, space: 1,
+    iconButtonTheme: IconButtonThemeData(
+      style: ButtonStyle(foregroundColor: WidgetStateProperty.all(muted)),
     ),
-
-    appBarTheme: AppBarTheme(
-      backgroundColor: dark ? AppColors.darkCard : AppColors.white,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      titleTextStyle: TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 16,
-        fontWeight: FontWeight.w600,
-        color: dark ? AppColors.white : AppColors.black,
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? onAccent : const Color(0xFFE5F7F2),
       ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? accent
+            : (dark ? const Color(0xFF3A4755) : const Color(0xFFC5CED8)),
+      ),
+      trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
     ),
-
+    checkboxTheme: CheckboxThemeData(
+      fillColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? accent : Colors.transparent,
+      ),
+      checkColor: WidgetStateProperty.all(onAccent),
+      side: BorderSide(color: AppColors.borderStrong(dark: dark), width: 1.5),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+    ),
     chipTheme: ChipThemeData(
-      backgroundColor: dark ? const Color(0xFF2A2825) : AppColors.warmWhite,
-      labelStyle: TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 12,
-        fontWeight: FontWeight.w600, letterSpacing: 0.125,
-        color: dark ? AppColors.white : AppColors.black,
-      ),
-      side: BorderSide(color: borderColor),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.micro),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      backgroundColor: AppColors.field(dark: dark),
+      labelStyle: AppText.badge().copyWith(color: text, fontSize: 12),
+      side: BorderSide(color: border),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.subtle)),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
     ),
-
     dialogTheme: DialogThemeData(
-      backgroundColor: dark ? AppColors.darkCard : AppColors.white,
+      backgroundColor: panel,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        side: BorderSide(color: borderColor),
-        borderRadius: BorderRadius.circular(AppRadius.comfortable),
+        side: BorderSide(color: AppColors.dialogBorder(dark: dark)),
+        borderRadius: BorderRadius.circular(AppRadius.dialog),
+      ),
+      titleTextStyle: AppText.cardTitle(dark: dark),
+      contentTextStyle: AppText.body(dark: dark),
+    ),
+    datePickerTheme: DatePickerThemeData(
+      backgroundColor: panel,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: AppColors.dialogBorder(dark: dark)),
+        borderRadius: BorderRadius.circular(AppRadius.dialog),
       ),
     ),
-
     popupMenuTheme: PopupMenuThemeData(
-      color: dark ? AppColors.darkCard : AppColors.white,
+      color: panel,
       surfaceTintColor: Colors.transparent,
-      elevation: 0,
+      elevation: 6,
       shape: RoundedRectangleBorder(
-        side: BorderSide(color: borderColor),
+        side: BorderSide(color: border),
         borderRadius: BorderRadius.circular(AppRadius.standard),
       ),
-      textStyle: TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 14,
-        fontWeight: FontWeight.w400,
-        color: dark ? AppColors.white : AppColors.black,
+      textStyle: AppText.body(dark: dark),
+    ),
+    menuTheme: MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStateProperty.all(panel),
+        surfaceTintColor: WidgetStateProperty.all(Colors.transparent),
+        side: WidgetStateProperty.all(BorderSide(color: border)),
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.standard)),
+        ),
       ),
     ),
-
-    navigationRailTheme: NavigationRailThemeData(
-      backgroundColor: dark ? AppColors.darkCard : AppColors.white,
-      selectedIconTheme:
-          const IconThemeData(color: AppColors.blue, size: 20),
-      unselectedIconTheme:
-          IconThemeData(color: mutedColor, size: 20),
-      selectedLabelTextStyle: const TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: AppColors.blue, letterSpacing: 0.125,
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF26323E) : const Color(0xFF1F2933),
+        borderRadius: BorderRadius.circular(6),
       ),
-      unselectedLabelTextStyle: TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 12,
-        fontWeight: FontWeight.w500,
-        color: mutedColor, letterSpacing: 0.125,
-      ),
-      indicatorColor: AppColors.blue.withValues(alpha: 0.10),
-      indicatorShape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.subtle),
-      ),
-      elevation: 0,
+      textStyle: const TextStyle(fontFamily: AppText.fontFamily, fontSize: 12, color: Colors.white),
     ),
-
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: dark ? AppColors.warmDark : AppColors.black,
-      contentTextStyle: const TextStyle(
-        fontFamily: AppText.fontFamily, fontSize: 14,
-        fontWeight: FontWeight.w400, color: AppColors.white,
+      backgroundColor: dark ? const Color(0xFF24483C) : const Color(0xFFE3F4F0),
+      contentTextStyle: TextStyle(
+        fontFamily: AppText.fontFamily,
+        fontSize: 13,
+        color: dark ? const Color(0xFFDBFFF1) : const Color(0xFF0B4A40),
       ),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.micro),
+        side: BorderSide(color: dark ? const Color(0xFF4D7B68) : const Color(0xFF9ED5C8)),
+        borderRadius: BorderRadius.circular(10),
       ),
       behavior: SnackBarBehavior.floating,
+      width: 440,
+      elevation: 8,
     ),
-
     textTheme: TextTheme(
-      displayLarge:   AppText.display(dark: dark),
-      displayMedium:  AppText.displaySecondary(dark: dark),
-      displaySmall:   AppText.subHeadingLarge(dark: dark),
-      headlineLarge:  AppText.sectionHeading(dark: dark),
-      headlineMedium: AppText.subHeading(dark: dark),
-      headlineSmall:  AppText.cardTitle(dark: dark),
-      titleLarge:     AppText.cardTitle(dark: dark),
-      titleMedium:    AppText.bodySemibold(dark: dark),
-      titleSmall:     AppText.bodyMedium(dark: dark),
-      bodyLarge:      AppText.bodyLarge(dark: dark),
-      bodyMedium:     AppText.body(dark: dark),
-      bodySmall:      AppText.captionLight(dark: dark),
-      labelLarge:     AppText.navButton(dark: dark),
-      labelMedium:    AppText.caption(dark: dark),
-      labelSmall:     AppText.badge(),
+      headlineSmall: AppText.cardTitle(dark: dark),
+      titleLarge: AppText.cardTitle(dark: dark),
+      titleMedium: AppText.bodySemibold(dark: dark),
+      titleSmall: AppText.bodyMedium(dark: dark),
+      bodyLarge: AppText.body(dark: dark),
+      bodyMedium: AppText.body(dark: dark),
+      bodySmall: AppText.captionLight(dark: dark),
+      labelLarge: AppText.navButton(dark: dark),
+      labelMedium: AppText.caption(dark: dark),
+      labelSmall: AppText.badge(),
     ),
   );
 }

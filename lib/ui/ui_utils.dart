@@ -80,34 +80,11 @@ const _labelPalette = [
 Color labelColor(String text) =>
     _labelPalette[text.codeUnits.fold(0, (a, b) => a + b) % _labelPalette.length];
 
-/// Solid uppercase pill, like Jira labels.
-class LabelPill extends StatelessWidget {
-  const LabelPill(this.text, {super.key, this.color});
-
-  final String text;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color ?? labelColor(text),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Text(
-        text.toUpperCase(),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
-        ),
-      ),
-    );
-  }
+/// "André Cristen" → "AC".
+String initialsOf(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+  if (parts.isEmpty) return '?';
+  return (parts.first[0] + (parts.length > 1 ? parts.last[0] : '')).toUpperCase();
 }
 
 /// Circle with the person's initials; full name in the tooltip.
@@ -119,10 +96,7 @@ class UserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    final initials = parts.isEmpty
-        ? '?'
-        : (parts.first[0] + (parts.length > 1 ? parts.last[0] : '')).toUpperCase();
+    final initials = initialsOf(name);
     return Tooltip(
       message: name,
       child: CircleAvatar(

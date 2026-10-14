@@ -9,6 +9,7 @@ import '../../models/redmine_issue.dart';
 import '../../services/redmine_api_service.dart';
 import '../../services/theme_service.dart';
 import '../../state/app_state.dart';
+import '../components.dart';
 import '../ui_utils.dart';
 import 'issue_detail_dialog.dart';
 
@@ -40,6 +41,8 @@ class _BoardViewState extends State<BoardView> {
   final Set<int> _seen = {};
 
   bool _listMode = false;
+  bool _moreFilters = false;
+  final _searchCtl = TextEditingController();
   String _search = '';
   int? _assigneeId; // null = everyone, 0 = unassigned
 
@@ -52,6 +55,7 @@ class _BoardViewState extends State<BoardView> {
   @override
   void dispose() {
     _hScroll.dispose();
+    _searchCtl.dispose();
     super.dispose();
   }
 
@@ -157,33 +161,112 @@ class _BoardViewState extends State<BoardView> {
     final visible = _visible;
     final columnIds = _columnIds;
     final hidden = _listMode ? 0 : visible.where((i) => !columnIds.contains(i.statusId)).length;
+    final count = visible.length - hidden;
+    final assignees = <int, String>{
+      for (final i in _issues ?? const <RedmineIssue>[])
+        if (i.assigneeId != null) i.assigneeId!: i.assigneeName ?? '?',
+    };
+    final sortedAssignees = assignees.entries.toList()
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _toolbar(visible.length - hidden, hidden, columnIds, dark),
-        SizedBox(
-          height: 2,
-          child: _loading ? const LinearProgressIndicator(minHeight: 2) : null,
+        PageHeader(
+          title: widget.query.name,
+          subtitle: 'Explore as tarefas da consulta e encontre o que precisa.',
+          actions: [if (!_listMode) _columnsMenu(columnIds)],
         ),
+        FiltersPanel(
+          controls: [
+            SearchField(
+              controller: _searchCtl,
+              hint: 'Buscar tarefa pelo título ou #id…',
+              onChanged: (v) => setState(() => _search = v),
+            ),
+            AppTabs<bool>(
+              tabs: const [
+                (false, 'Board', Icons.view_kanban_outlined),
+                (true, 'Lista', Icons.view_list_outlined),
+              ],
+              selected: _listMode,
+              onChanged: (v) => setState(() => _listMode = v),
+            ),
+          ],
+          actions: [
+            MoreFiltersButton(
+              open: _moreFilters,
+              onPressed: () => setState(() => _moreFilters = !_moreFilters),
+            ),
+            IconBtn(
+              icon: Icons.refresh,
+              tooltip: 'Atualizar tarefas',
+              onPressed: _loading ? null : _load,
+            ),
+            IconBtn(
+              icon: Icons.open_in_new,
+              tooltip: 'Abrir consulta no Redmine',
+              onPressed: () => openRedmineLink(context, widget.query.directUrl),
+            ),
+          ],
+          extra: !_moreFilters
+              ? null
+              : [
+                  LabeledField(
+                    label: 'Responsável',
+                    child: SelectBox<int?>(
+                      value: _assigneeId,
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('Todos os responsáveis')),
+                        const DropdownMenuItem(value: 0, child: Text('Sem responsável')),
+                        for (final a in sortedAssignees)
+                          DropdownMenuItem(value: a.key, child: Text(a.value)),
+                      ],
+                      onChanged: (v) => setState(() => _assigneeId = v),
+                    ),
+                  ),
+                ],
+          summary: FilterSummary(
+            text: [
+              '$count tarefa${count == 1 ? '' : 's'}',
+              if (hidden > 0) '$hidden em colunas ocultas',
+            ].join(' · '),
+            chips: [
+              if (_assigneeId != null)
+                _assigneeId == 0 ? 'Sem responsável' : (assignees[_assigneeId] ?? ''),
+              if (_search.trim().isNotEmpty) 'Busca: ${_search.trim()}',
+            ],
+            onClear: () => setState(() {
+              _assigneeId = null;
+              _search = '';
+              _searchCtl.clear();
+            }),
+          ),
+        ),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
         if (_error != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            padding: const EdgeInsets.only(bottom: 12),
             child: Row(
               children: [
-                const Icon(Icons.error_outline, size: 16, color: AppColors.orange),
-                const SizedBox(width: Sp.s8),
+                Icon(Icons.error_outline, size: 16, color: AppColors.danger(dark: dark)),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Não foi possível carregar: $_error',
-                    style: AppText.caption(dark: dark).copyWith(color: AppColors.orange),
+                    style: AppText.captionLight(dark: dark).copyWith(
+                      color: AppColors.danger(dark: dark),
+                    ),
                   ),
                 ),
                 TextButton(onPressed: _load, child: const Text('Tentar de novo')),
               ],
             ),
           ),
-        const SizedBox(height: Sp.s12),
         Expanded(
           child: _issues == null
               ? (_error == null
@@ -197,105 +280,8 @@ class _BoardViewState extends State<BoardView> {
     );
   }
 
-  Widget _toolbar(int count, int hidden, List<int> columnIds, bool dark) {
-    final assignees = <int, String>{
-      for (final i in _issues ?? const <RedmineIssue>[])
-        if (i.assigneeId != null) i.assigneeId!: i.assigneeName ?? '?',
-    };
-    final sortedAssignees = assignees.entries.toList()
-      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
-
-    // Every control is 40px tall so the toolbar lines up.
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-      child: Wrap(
-        spacing: Sp.s12,
-        runSpacing: Sp.s8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          SizedBox(
-            width: 240,
-            child: TextField(
-              textAlignVertical: TextAlignVertical.center,
-              decoration: const InputDecoration(
-                hintText: 'Buscar por título ou #id',
-                prefixIcon: Icon(Icons.search, size: 18),
-                prefixIconConstraints: BoxConstraints(minWidth: 36, minHeight: _toolbarHeight),
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: Sp.s12),
-                constraints: BoxConstraints.tightFor(height: _toolbarHeight),
-              ),
-              onChanged: (v) => setState(() => _search = v),
-            ),
-          ),
-          _ToolbarBox(
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int?>(
-                value: _assigneeId,
-                isDense: true,
-                style: AppText.body(dark: dark),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('Todos os responsáveis')),
-                  const DropdownMenuItem(value: 0, child: Text('Sem responsável')),
-                  for (final a in sortedAssignees)
-                    DropdownMenuItem(value: a.key, child: Text(a.value)),
-                ],
-                onChanged: (v) => setState(() => _assigneeId = v),
-              ),
-            ),
-          ),
-          SizedBox(
-            height: _toolbarHeight,
-            child: SegmentedButton<bool>(
-              showSelectedIcon: false,
-              style: SegmentedButton.styleFrom(
-                minimumSize: const Size(0, _toolbarHeight),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.micro),
-                ),
-              ),
-              segments: const [
-                ButtonSegment(
-                  value: false,
-                  icon: Icon(Icons.view_kanban_outlined, size: 16),
-                  label: Text('Board'),
-                ),
-                ButtonSegment(
-                  value: true,
-                  icon: Icon(Icons.view_list_outlined, size: 16),
-                  label: Text('Lista'),
-                ),
-              ],
-              selected: {_listMode},
-              onSelectionChanged: (v) => setState(() => _listMode = v.first),
-            ),
-          ),
-          if (!_listMode) _columnsMenu(columnIds, dark),
-          Text(
-            [
-              '$count tarefa${count == 1 ? '' : 's'}',
-              if (hidden > 0) '$hidden em colunas ocultas',
-            ].join(' · '),
-            style: AppText.caption(dark: dark),
-          ),
-          IconButton(
-            tooltip: 'Atualizar',
-            onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh, size: 20),
-          ),
-          IconButton(
-            tooltip: 'Abrir consulta no Redmine',
-            onPressed: () => openRedmineLink(context, widget.query.directUrl),
-            icon: const Icon(Icons.open_in_new, size: 18),
-          ),
-        ],
-      ),
-    );
-  }
-
   /// Multiselect of the board columns; the choice is saved per board.
-  Widget _columnsMenu(List<int> columnIds, bool dark) {
+  Widget _columnsMenu(List<int> columnIds) {
     return MenuAnchor(
       menuChildren: [
         for (final s in _statuses)
@@ -319,20 +305,10 @@ class _BoardViewState extends State<BoardView> {
           child: const Text('Só status com tarefas'),
         ),
       ],
-      builder: (context, controller, _) => _ToolbarBox(
-        onTap: () => controller.isOpen ? controller.close() : controller.open(),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.view_column_outlined, size: 18),
-            const SizedBox(width: Sp.s8),
-            Text(
-              'Colunas ${columnIds.length}/${_statuses.length}',
-              style: AppText.body(dark: dark),
-            ),
-            const Icon(Icons.arrow_drop_down, size: 20),
-          ],
-        ),
+      builder: (context, controller, _) => OutlinedButton.icon(
+        onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+        icon: const Icon(Icons.view_column_outlined, size: 17),
+        label: Text('Colunas ${columnIds.length}/${_statuses.length}'),
       ),
     );
   }
@@ -356,14 +332,14 @@ class _BoardViewState extends State<BoardView> {
       child: ListView(
         controller: _hScroll,
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+        padding: const EdgeInsets.only(bottom: 15),
         children: [
           for (final status in columns)
             _column(
               status,
               [
                 for (final i in visible)
-                  if (i.statusId == status['id']) i
+                  if (i.statusId == status['id']) i,
               ],
               closed,
               multiProject,
@@ -382,84 +358,104 @@ class _BoardViewState extends State<BoardView> {
     bool dark,
   ) {
     final id = status['id'] as int;
+    final name = '${status['name']}';
+    final (_, dotColor) = AppColors.tone(Tag.hashed(name).tone, dark: dark);
     return Container(
-      // Keys keep the dragged card mounted when empty columns appear mid-drag.
+      // Keys keep the dragged card mounted when columns change mid-drag.
       key: ValueKey(id),
-      width: 280,
-      margin: const EdgeInsets.only(right: Sp.s12),
+      width: 270,
+      margin: const EdgeInsets.only(right: 14),
       child: DragTarget<RedmineIssue>(
         onWillAcceptWithDetails: (d) => d.data.statusId != id,
         onAcceptWithDetails: (d) => _move(d.data, status),
         builder: (context, candidates, _) => Container(
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: dark ? AppColors.darkCard : const Color(0xFFF1F0EE),
-            borderRadius: BorderRadius.circular(AppRadius.standard),
+            color: AppColors.column(dark: dark),
+            borderRadius: BorderRadius.circular(AppRadius.comfortable),
             border: Border.all(
-              color: candidates.isNotEmpty ? AppColors.notionBlue : Colors.transparent,
-              width: 2,
+              color: candidates.isNotEmpty
+                  ? AppColors.accent(dark: dark)
+                  : AppColors.columnBorder(dark: dark),
+              width: candidates.isNotEmpty ? 2 : 1,
             ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                padding: const EdgeInsets.fromLTRB(2, 3, 2, 14),
                 child: Row(
                   children: [
-                    Flexible(
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
                       child: Text(
-                        '${status['name']}'.toUpperCase(),
+                        name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppText.microLabel(dark: dark).copyWith(
+                        style: AppText.caption(dark: dark).copyWith(
+                          fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          letterSpacing: 0.6,
+                          color: AppColors.sectionText(dark: dark),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Text('${issues.length}', style: AppText.microLabel(dark: dark)),
                     if (closed.contains(id)) ...[
                       const SizedBox(width: 4),
-                      const Icon(Icons.check, size: 12, color: AppColors.green),
+                      Icon(Icons.check, size: 12, color: AppColors.mutedText(dark: dark)),
                     ],
+                    const SizedBox(width: 8),
+                    Tag('${issues.length}'),
                   ],
                 ),
               ),
               Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                  itemCount: issues.length,
-                  itemBuilder: (context, index) {
-                    final issue = issues[index];
-                    final card = _IssueCard(
-                      issue: issue,
-                      priority: _priorityIcon(issue),
-                      closed: closed.contains(issue.statusId),
-                      showProject: multiProject,
-                      busy: _moving.contains(issue.id),
-                      dark: dark,
-                      onTap: () => showIssueDetail(context, issue),
-                    );
-                    return Padding(
-                      key: ValueKey(issue.id),
-                      padding: const EdgeInsets.only(bottom: Sp.s8),
-                      child: Draggable<RedmineIssue>(
-                        data: issue,
-                        maxSimultaneousDrags: _moving.contains(issue.id) ? 0 : 1,
-                        feedback: Material(
-                          color: Colors.transparent,
-                          child: SizedBox(
-                            width: 264,
-                            child: Transform.rotate(angle: 0.03, child: card),
-                          ),
+                child: issues.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 22),
+                        child: Text(
+                          'Nenhuma tarefa',
+                          textAlign: TextAlign.center,
+                          style: AppText.microLabel(dark: dark),
                         ),
-                        childWhenDragging: Opacity(opacity: 0.35, child: card),
-                        child: card,
+                      )
+                    : ListView.builder(
+                        itemCount: issues.length,
+                        itemBuilder: (context, index) {
+                          final issue = issues[index];
+                          final card = _IssueCard(
+                            issue: issue,
+                            priority: _priorityIcon(issue),
+                            closed: closed.contains(issue.statusId),
+                            showProject: multiProject,
+                            busy: _moving.contains(issue.id),
+                            dark: dark,
+                            onTap: () => showIssueDetail(context, issue),
+                          );
+                          return Padding(
+                            key: ValueKey(issue.id),
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Draggable<RedmineIssue>(
+                              data: issue,
+                              maxSimultaneousDrags: _moving.contains(issue.id) ? 0 : 1,
+                              feedback: Material(
+                                color: Colors.transparent,
+                                child: SizedBox(
+                                  width: 246,
+                                  child: Transform.rotate(angle: 0.03, child: card),
+                                ),
+                              ),
+                              childWhenDragging: Opacity(opacity: 0.35, child: card),
+                              child: card,
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
               ),
             ],
           ),
@@ -468,17 +464,19 @@ class _BoardViewState extends State<BoardView> {
     );
   }
 
+  /// Arrow relative to the default priority of this Redmine (nothing fixed by name).
   Widget _priorityIcon(RedmineIssue issue) {
     final level = _priorityIds.indexOf(issue.priorityId ?? -1) - _defaultPriority;
-    final (icon, color) = switch (level) {
-      < 0 => (Icons.keyboard_arrow_down, AppColors.blue),
-      0 => (Icons.drag_handle, const Color(0xFFDD9900)),
-      1 => (Icons.keyboard_arrow_up, AppColors.orange),
-      _ => (Icons.keyboard_double_arrow_up, const Color(0xFFDE350B)),
+    final (icon, tone) = switch (level) {
+      < 0 => (Icons.arrow_downward, TagTone.blue),
+      0 => (Icons.drag_handle, TagTone.amber),
+      1 => (Icons.arrow_upward, TagTone.red),
+      _ => (Icons.keyboard_double_arrow_up, TagTone.red),
     };
+    final (_, color) = AppColors.tone(tone, dark: Theme.of(context).brightness == Brightness.dark);
     return Tooltip(
       message: 'Prioridade: ${issue.priorityName}',
-      child: Icon(icon, size: 18, color: color),
+      child: Icon(icon, size: 15, color: color),
     );
   }
 
@@ -486,134 +484,134 @@ class _BoardViewState extends State<BoardView> {
 
   Widget _list(List<RedmineIssue> visible, bool dark) {
     final closed = _closedStatusIds;
-    final border = AppColors.border(dark: dark);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth > 980;
-        Widget row(List<Widget> cells) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: Sp.s12, vertical: 10),
-              child: Row(children: cells),
-            );
-        Widget head(String text, double? width) {
-          final label = Text(
-            text.toUpperCase(),
-            style: AppText.microLabel(dark: dark).copyWith(fontWeight: FontWeight.w700),
-          );
-          return width == null ? Expanded(child: label) : SizedBox(width: width, child: label);
-        }
+    final border = BorderSide(color: AppColors.border(dark: dark));
+    Widget headCell(String text, {double? width}) {
+      final label = Text(text, style: AppText.microLabel(dark: dark).copyWith(fontSize: 11));
+      return width == null ? Expanded(child: label) : SizedBox(width: width, child: label);
+    }
 
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-          itemCount: visible.length + 1,
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return Container(
-                decoration: BoxDecoration(border: Border(bottom: BorderSide(color: border))),
-                child: row([
-                  head('#', 72),
-                  head('Tipo', 120),
-                  head('Status', 140),
-                  if (wide) head('Prioridade', 120),
-                  head('Título', null),
-                  head('Responsável', 180),
-                  if (wide) head('Atualizada', 150),
-                ]),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      clipBehavior: Clip.antiAlias,
+      decoration: surfaceCard(dark: dark),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth > 980;
+          Widget row(List<Widget> cells, {Color? color}) => Container(
+                color: color,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                child: Row(children: cells),
               );
-            }
-            final issue = visible[index - 1];
-            return InkWell(
-              onTap: () => showIssueDetail(context, issue),
-              child: Container(
-                decoration: BoxDecoration(border: Border(bottom: BorderSide(color: border))),
-                child: row([
-                  SizedBox(
-                    width: 72,
-                    child: Text(
-                      '#${issue.id}',
-                      style: AppText.caption(dark: dark).copyWith(
-                        decoration:
-                            closed.contains(issue.statusId) ? TextDecoration.lineThrough : null,
+          return ListView.builder(
+            itemCount: visible.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return row(
+                  [
+                    headCell('Tarefa'),
+                    headCell('Situação', width: 170),
+                    headCell('Responsável', width: 190),
+                    headCell('Tipo', width: 150),
+                    headCell('Prioridade', width: 130),
+                    if (wide) headCell('Atualizada', width: 150),
+                  ],
+                  color: AppColors.sunken(dark: dark),
+                );
+              }
+              final issue = visible[index - 1];
+              return InkWell(
+                onTap: () => showIssueDetail(context, issue),
+                hoverColor: AppColors.cellHover(dark: dark),
+                child: Container(
+                  decoration: BoxDecoration(border: Border(top: border)),
+                  child: row([
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '#${issue.id}',
+                            style: AppText.microLabel(dark: dark).copyWith(
+                              color: AppColors.accent(dark: dark),
+                              decoration: closed.contains(issue.statusId)
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            issue.subject,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.body(dark: dark),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                  Container(
-                    width: 120,
-                    padding: const EdgeInsets.only(right: Sp.s8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: issue.trackerName.isEmpty
-                          ? const SizedBox()
-                          : LabelPill(issue.trackerName),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 140,
-                    child: Text(
-                      issue.statusName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.caption(dark: dark),
-                    ),
-                  ),
-                  if (wide)
                     SizedBox(
-                      width: 120,
+                      width: 170,
+                      child: Align(alignment: Alignment.centerLeft, child: Tag(issue.statusName)),
+                    ),
+                    SizedBox(
+                      width: 190,
+                      child: issue.assigneeName == null
+                          ? Text('-', style: AppText.microLabel(dark: dark))
+                          : Row(
+                              children: [
+                                UserAvatar(name: issue.assigneeName!, size: 24),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    issue.assigneeName!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppText.body(dark: dark),
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                    SizedBox(
+                      width: 150,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: issue.trackerName.isEmpty
+                            ? const SizedBox()
+                            : Tag.hashed(issue.trackerName),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 130,
                       child: Row(
                         children: [
                           _priorityIcon(issue),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 6),
                           Flexible(
                             child: Text(
                               issue.priorityName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: AppText.caption(dark: dark),
+                              style: AppText.body(dark: dark),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  Expanded(
-                    child: Text(
-                      issue.subject,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.bodyMedium(dark: dark),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 180,
-                    child: issue.assigneeName == null
-                        ? Text('-', style: AppText.caption(dark: dark))
-                        : Row(
-                            children: [
-                              UserAvatar(name: issue.assigneeName!, size: 22),
-                              const SizedBox(width: Sp.s8),
-                              Flexible(
-                                child: Text(
-                                  issue.assigneeName!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppText.caption(dark: dark),
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
-                  if (wide)
-                    SizedBox(
-                      width: 150,
-                      child: Text(
-                        fmtDateTime(issue.updatedOn),
-                        style: AppText.microLabel(dark: dark),
+                    if (wide)
+                      SizedBox(
+                        width: 150,
+                        child: Text(
+                          fmtDateTime(issue.updatedOn),
+                          style: AppText.microLabel(dark: dark),
+                        ),
                       ),
-                    ),
-                ]),
-              ),
-            );
-          },
-        );
-      },
+                  ]),
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
@@ -641,101 +639,65 @@ class _IssueCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Opacity(
       opacity: busy ? 0.5 : 1,
-      child: Container(
-        decoration: BoxDecoration(
-          color: dark ? AppColors.darkSurface : AppColors.white,
-          borderRadius: BorderRadius.circular(AppRadius.standard),
-          border: Border.all(color: AppColors.border(dark: dark)),
-          boxShadow: AppShadows.card,
+      child: Material(
+        color: AppColors.panel(dark: dark),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(9),
+          side: BorderSide(color: AppColors.border(dark: dark)),
         ),
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(AppRadius.standard),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.all(Sp.s12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (showProject) ...[
-                    Text(
-                      issue.projectName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.microLabel(dark: dark),
-                    ),
-                    const SizedBox(height: Sp.s4),
-                  ],
+        child: InkWell(
+          borderRadius: BorderRadius.circular(9),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showProject) ...[
                   Text(
-                    issue.subject,
-                    maxLines: 3,
+                    issue.projectName,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppText.bodyMedium(dark: dark).copyWith(height: 1.35),
+                    style: AppText.microLabel(dark: dark).copyWith(fontSize: 11),
                   ),
-                  if (issue.trackerName.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    LabelPill(issue.trackerName),
-                  ],
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      priority,
-                      const SizedBox(width: 6),
-                      Text(
-                        '#${issue.id}',
-                        style: AppText.microLabel(dark: dark).copyWith(
-                          fontWeight: FontWeight.w600,
-                          decoration: closed ? TextDecoration.lineThrough : null,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (busy)
-                        const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      else if (issue.assigneeName != null)
-                        UserAvatar(name: issue.assigneeName!),
-                    ],
-                  ),
+                  const SizedBox(height: 4),
                 ],
-              ),
+                Text(
+                  issue.subject,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.bodyMedium(dark: dark).copyWith(fontSize: 13),
+                ),
+                if (issue.trackerName.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Tag.hashed(issue.trackerName),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    priority,
+                    const SizedBox(width: 5),
+                    Text(
+                      '#${issue.id}',
+                      style: AppText.microLabel(dark: dark).copyWith(
+                        fontSize: 11,
+                        decoration: closed ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (busy)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else if (issue.assigneeName != null)
+                      UserAvatar(name: issue.assigneeName!, size: 26),
+                  ],
+                ),
+              ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-const _toolbarHeight = 40.0;
-
-/// Toolbar control frame matching the theme's text field.
-class _ToolbarBox extends StatelessWidget {
-  const _ToolbarBox({required this.child, this.onTap});
-
-  final Widget child;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final input = Theme.of(context).inputDecorationTheme;
-    return Material(
-      color: input.fillColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.micro),
-        side: input.enabledBorder?.borderSide ?? BorderSide.none,
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.micro),
-        child: Container(
-          height: _toolbarHeight,
-          padding: const EdgeInsets.symmetric(horizontal: Sp.s12),
-          // widthFactor 1: hug the content instead of filling the Wrap line.
-          child: Align(alignment: Alignment.centerLeft, widthFactor: 1, child: child),
         ),
       ),
     );

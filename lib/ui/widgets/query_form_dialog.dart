@@ -6,6 +6,7 @@ import '../../models/monitored_query.dart';
 import '../../services/redmine_api_service.dart';
 import '../../services/theme_service.dart';
 import '../../state/app_state.dart';
+import '../components.dart';
 
 class QueryFormDialog extends StatefulWidget {
   const QueryFormDialog({
@@ -77,215 +78,140 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    const gap = SizedBox(height: 17);
 
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.all(Sp.s24),
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 560),
-        decoration: surfaceCard(dark: dark),
-        padding: const EdgeInsets.all(Sp.s24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    widget.initial == null ? 'Nova consulta' : 'Editar consulta',
-                    style: AppText.bodyLarge(dark: dark),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, size: 18),
-                    color: AppColors.warmGray500,
-                    splashRadius: 24,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
+    return AppDialog(
+      title: Text(widget.initial == null ? 'Nova consulta' : 'Editar consulta'),
+      footer: [
+        OutlinedButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon: const Icon(Icons.check, size: 17),
+          label: const Text('Salvar'),
+        ),
+      ],
+      body: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: AppTabs<bool>(
+                tabs: const [
+                  (false, 'Consulta salva', Icons.push_pin_outlined),
+                  (true, 'URL manual', Icons.link),
                 ],
+                selected: _manualUrl,
+                onChanged: (v) => setState(() => _manualUrl = v),
               ),
-              const SizedBox(height: Sp.s16),
-              Divider(
-                color: dark ? AppColors.darkBorder : AppColors.whisperBorder,
-                height: 1,
+            ),
+            const SizedBox(height: 20),
+            if (!_manualUrl) _buildSavedPicker(dark),
+            if (_savedError != null) ...[
+              Text(
+                'Não foi possível carregar as consultas salvas: $_savedError',
+                style: AppText.microLabel(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
               ),
-              const SizedBox(height: Sp.s16),
-
-              // Form Content
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment(
-                            value: false,
-                            icon: Icon(Icons.bookmark_outline, size: 16),
-                            label: Text('Consulta salva'),
-                          ),
-                          ButtonSegment(
-                            value: true,
-                            icon: Icon(Icons.link, size: 16),
-                            label: Text('URL manual'),
-                          ),
-                        ],
-                        selected: {_manualUrl},
-                        onSelectionChanged: (v) => setState(() => _manualUrl = v.first),
-                      ),
-                      const SizedBox(height: Sp.s12),
-                      if (!_manualUrl) _buildSavedPicker(dark),
-                      if (_savedError != null) ...[
-                        Text(
-                          'Não foi possível carregar as consultas salvas: $_savedError',
-                          style: AppText.microLabel(dark: dark).copyWith(color: AppColors.orange),
-                        ),
-                        const SizedBox(height: Sp.s8),
-                      ],
-                      if (_manualUrl) ...[
-                        TextFormField(
-                          controller: _queryUrl,
-                          decoration: const InputDecoration(
-                            labelText: 'URL da consulta no Redmine',
-                            hintText: 'https://seu-redmine.com/projects/x/issues?query_id=123',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) return 'Obrigatório';
-                            final parsed = _parseUserUrl(value.trim());
-                            if (parsed == null) {
-                              return 'Informe uma URL válida (com /issues e query_id)';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: Sp.s4),
-                        Text(
-                          'Cole a URL de uma lista de tarefas do Redmine (com filtros ou query_id). O app gera o endpoint /issues.json automaticamente.',
-                          style: AppText.microLabel(dark: dark),
-                        ),
-                      ],
-                      const SizedBox(height: Sp.s12),
-                      TextFormField(
-                        controller: _name,
-                        decoration: const InputDecoration(labelText: 'Nome'),
-                        validator: (value) =>
-                            value == null || value.trim().isEmpty ? 'Obrigatório' : null,
-                      ),
-                      const SizedBox(height: Sp.s16),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppColors.notionBlue,
-                            padding: EdgeInsets.zero,
-                          ),
-                          onPressed: () => setState(() => _showAdvanced = !_showAdvanced),
-                          icon: Icon(
-                            _showAdvanced ? Icons.expand_less : Icons.expand_more,
-                            size: 18,
-                          ),
-                          label: Text(
-                            _showAdvanced ? 'Ocultar opções avançadas' : 'Mostrar opções avançadas',
-                          ),
-                        ),
-                      ),
-                      if (_showAdvanced) ...[
-                        const SizedBox(height: Sp.s8),
-                        TextFormField(
-                          controller: _countPath,
-                          decoration: const InputDecoration(
-                            labelText: 'Caminho da contagem no JSON',
-                            hintText: 'total_count',
-                          ),
-                          validator: (value) =>
-                              value == null || value.trim().isEmpty ? 'Obrigatório' : null,
-                        ),
-                        const SizedBox(height: Sp.s12),
-                      ],
-                      if (!_showAdvanced) const SizedBox(height: Sp.s8),
-                      TextFormField(
-                        controller: _pollSeconds,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Intervalo de monitoramento (segundos)',
-                          hintText: '$defaultPollSeconds',
-                        ),
-                        validator: (value) {
-                          final parsed = int.tryParse(value?.trim() ?? '');
-                          if (parsed == null) return 'Obrigatório';
-                          if (parsed < minPollSeconds) return 'Mínimo $minPollSeconds segundos';
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: Sp.s16),
-
-                      _ToggleRow(
-                        label: 'Consulta ativa',
-                        value: _enabled,
-                        dark: dark,
-                        onChanged: (v) => setState(() => _enabled = v),
-                      ),
-                      _ToggleRow(
-                        label: 'Fixar no menu como board',
-                        value: _pinned,
-                        dark: dark,
-                        onChanged: (v) => setState(() => _pinned = v),
-                      ),
-
-                      Divider(
-                        color: dark ? AppColors.darkBorder : AppColors.whisperBorder,
-                        height: Sp.s24,
-                      ),
-
-                      // ── Agendamento ─────────────────────────────────────
-                      _ScheduleSection(
-                        weekdays: _scheduleWeekdays,
-                        startHour: _scheduleStartHour,
-                        endHour: _scheduleEndHour,
-                        dark: dark,
-                        onWeekdaysChanged: (days) => setState(() => _scheduleWeekdays = days),
-                        onStartHourChanged: (h) => setState(() => _scheduleStartHour = h),
-                        onEndHourChanged: (h) => setState(() => _scheduleEndHour = h),
-                      ),
-
-                      Divider(
-                        color: dark ? AppColors.darkBorder : AppColors.whisperBorder,
-                        height: Sp.s24,
-                      ),
-
-                      _buildRules(dark),
-                    ],
+              const SizedBox(height: 8),
+            ],
+            if (_manualUrl)
+              LabeledField(
+                label: 'URL da consulta no Redmine',
+                child: TextFormField(
+                  controller: _queryUrl,
+                  decoration: const InputDecoration(
+                    hintText: 'https://seu-redmine.com/projects/x/issues?query_id=123',
+                    helperText:
+                        'Inclua os filtros ou o query_id da lista de tarefas. O app gera o endpoint /issues.json.',
+                    helperMaxLines: 2,
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) return 'Obrigatório';
+                    final parsed = _parseUserUrl(value.trim());
+                    if (parsed == null) {
+                      return 'Informe uma URL válida (com /issues e query_id)';
+                    }
+                    return null;
+                  },
                 ),
               ),
-
-              const SizedBox(height: Sp.s24),
-
-              // Actions
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: TextButton.styleFrom(foregroundColor: AppColors.warmGray500),
-                    child: const Text('Cancelar'),
+            gap,
+            LabeledField(
+              label: 'Nome da consulta',
+              child: TextFormField(
+                controller: _name,
+                validator: (value) => value == null || value.trim().isEmpty ? 'Obrigatório' : null,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _SwitchLine(
+              label: 'Consulta ativa',
+              value: _enabled,
+              onChanged: (v) => setState(() => _enabled = v),
+            ),
+            _SwitchLine(
+              label: 'Fixar no menu como board',
+              value: _pinned,
+              onChanged: (v) => setState(() => _pinned = v),
+            ),
+            const Divider(height: 46),
+            _ScheduleSection(
+              weekdays: _scheduleWeekdays,
+              startHour: _scheduleStartHour,
+              endHour: _scheduleEndHour,
+              dark: dark,
+              onWeekdaysChanged: (days) => setState(() => _scheduleWeekdays = days),
+              onStartHourChanged: (h) => setState(() => _scheduleStartHour = h),
+              onEndHourChanged: (h) => setState(() => _scheduleEndHour = h),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                onPressed: () => setState(() => _showAdvanced = !_showAdvanced),
+                icon: Icon(_showAdvanced ? Icons.expand_less : Icons.expand_more, size: 18),
+                label: const Text('Opções avançadas'),
+              ),
+            ),
+            if (_showAdvanced) ...[
+              const SizedBox(height: 8),
+              LabeledField(
+                label: 'Intervalo de verificação (segundos)',
+                child: TextFormField(
+                  controller: _pollSeconds,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    hintText: '$defaultPollSeconds',
+                    helperText: 'Mínimo de $minPollSeconds segundos.',
                   ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: _submit,
-                    style: FilledButton.styleFrom(backgroundColor: AppColors.notionBlue),
-                    child: const Text('Salvar'),
-                  ),
-                ],
+                  validator: (value) {
+                    final parsed = int.tryParse(value?.trim() ?? '');
+                    if (parsed == null) return 'Obrigatório';
+                    if (parsed < minPollSeconds) return 'Mínimo $minPollSeconds segundos';
+                    return null;
+                  },
+                ),
+              ),
+              gap,
+              LabeledField(
+                label: 'Caminho da contagem no JSON',
+                child: TextFormField(
+                  controller: _countPath,
+                  decoration: const InputDecoration(hintText: 'total_count'),
+                  validator: (value) =>
+                      value == null || value.trim().isEmpty ? 'Obrigatório' : null,
+                ),
               ),
             ],
-          ),
+            const Divider(height: 46),
+            _buildRules(dark),
+          ],
         ),
       ),
     );
@@ -295,25 +221,12 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Icon(Icons.notifications_active_outlined, size: 15, color: AppColors.blue),
-            const SizedBox(width: 6),
-            Text(
-              'REGRAS DE NOTIFICAÇÃO',
-              style: AppText.caption(dark: dark).copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: Sp.s4),
+        const SectionTitle(icon: Icons.notifications_none, text: 'Regras de notificação'),
         Text(
           'Avaliadas quando a contagem muda. A primeira regra atendida dispara a notificação — arraste para reordenar.',
           style: AppText.microLabel(dark: dark),
         ),
-        const SizedBox(height: Sp.s12),
+        const SizedBox(height: 12),
         ReorderableListView(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -329,13 +242,10 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
         if (_rules.isEmpty)
           Text(
             'Sem regras: esta consulta nunca vai notificar.',
-            style: AppText.microLabel(dark: dark).copyWith(color: AppColors.orange),
+            style: AppText.microLabel(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
           ),
         TextButton.icon(
-          style: TextButton.styleFrom(
-            foregroundColor: AppColors.notionBlue,
-            padding: EdgeInsets.zero,
-          ),
+          style: TextButton.styleFrom(padding: EdgeInsets.zero),
           onPressed: () => setState(() => _rules.add(_RuleDraft(const AlertRule()))),
           icon: const Icon(Icons.add, size: 18),
           label: const Text('Adicionar regra'),
@@ -366,7 +276,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
       margin: const EdgeInsets.only(bottom: Sp.s8),
       padding: const EdgeInsets.fromLTRB(Sp.s4, Sp.s8, Sp.s4, Sp.s8),
       decoration: BoxDecoration(
-        color: dark ? AppColors.darkSurface : AppColors.warmWhite,
+        color: AppColors.field(dark: dark),
         border: Border.all(color: AppColors.border(dark: dark)),
         borderRadius: BorderRadius.circular(AppRadius.standard),
       ),
@@ -380,7 +290,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                   cursor: SystemMouseCursors.grab,
                   child: Padding(
                     padding: EdgeInsets.all(Sp.s4),
-                    child: Icon(Icons.drag_indicator, size: 18, color: AppColors.warmGray500),
+                    child: Icon(Icons.drag_indicator, size: 18),
                   ),
                 ),
               ),
@@ -418,7 +328,9 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                 icon: Icon(
                   rule.expanded ? Icons.expand_less : Icons.edit_note,
                   size: 20,
-                  color: hasCustomText ? AppColors.notionBlue : AppColors.warmGray500,
+                  color: hasCustomText
+                      ? AppColors.accent(dark: dark)
+                      : AppColors.mutedText(dark: dark),
                 ),
               ),
               IconButton(
@@ -428,7 +340,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                   // Fields still reference the controllers until this frame ends.
                   WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
                 }),
-                icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.warmGray500),
+                icon: const Icon(Icons.delete_outline, size: 18),
               ),
             ],
           ),
@@ -638,49 +550,26 @@ class _ResolvedUrls {
   final String directUrl;
 }
 
-class _ToggleRow extends StatelessWidget {
-  const _ToggleRow({
-    required this.label,
-    required this.value,
-    required this.dark,
-    required this.onChanged,
-  });
+/// "Label ............ [switch]" line.
+class _SwitchLine extends StatelessWidget {
+  const _SwitchLine({required this.label, required this.value, required this.onChanged});
 
   final String label;
   final bool value;
-  final bool dark;
   final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: () => onChanged(!value),
-      borderRadius: BorderRadius.circular(AppRadius.subtle),
+      borderRadius: BorderRadius.circular(AppRadius.standard),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: Sp.s8),
+        padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: AppText.body(dark: dark)),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 36,
-              height: 20,
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: value ? AppColors.notionBlue : AppColors.warmGray300,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: 16,
-                height: 16,
-                decoration: const BoxDecoration(
-                  color: AppColors.pureWhite,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
+            Expanded(child: Text(label, style: AppText.body(dark: dark))),
+            Switch(value: value, onChanged: onChanged),
           ],
         ),
       ),
@@ -711,165 +600,113 @@ class _ScheduleSection extends StatelessWidget {
 
   static const _labels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 
+  Widget _hour(String label, int value, ValueChanged<int?> onChanged) => LabeledField(
+        label: label,
+        child: DropdownButtonFormField<int>(
+          initialValue: value,
+          isDense: true,
+          items: [
+            for (var h = 0; h < 24; h++)
+              DropdownMenuItem(value: h, child: Text('${h.toString().padLeft(2, '0')}:00')),
+          ],
+          onChanged: onChanged,
+        ),
+      );
+
+  Widget _warning(String text, {bool danger = true}) => Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          text,
+          style: AppText.microLabel(dark: dark).copyWith(
+            color: danger ? AppColors.danger(dark: dark) : null,
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Icon(Icons.schedule_outlined, size: 15, color: AppColors.blue),
-            const SizedBox(width: 6),
-            Text(
-              'AGENDAMENTO',
-              style: AppText.caption(dark: dark).copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
+        const SectionTitle(icon: Icons.calendar_today_outlined, text: 'Agendamento'),
+        LabeledField(
+          label: 'Dias da semana',
+          child: Wrap(
+            spacing: 5,
+            runSpacing: 5,
+            children: [
+              for (var i = 0; i < 7; i++)
+                _DayButton(
+                  label: _labels[i],
+                  selected: weekdays.contains(i + 1),
+                  onTap: () {
+                    final day = i + 1;
+                    final next = List<int>.from(weekdays);
+                    next.contains(day) ? next.remove(day) : (next..add(day)).sort();
+                    onWeekdaysChanged(next);
+                  },
+                ),
+            ],
+          ),
         ),
-        const SizedBox(height: Sp.s12),
-
-        // Day-of-week chips
-        Text('Dias da semana', style: AppText.caption(dark: dark)),
-        const SizedBox(height: Sp.s8),
-        Wrap(
-          spacing: 6,
-          children: List.generate(7, (i) {
-            final day = i + 1;
-            final selected = weekdays.contains(day);
-            return _DayChip(
-              label: _labels[i],
-              selected: selected,
-              dark: dark,
-              onTap: () {
-                final next = List<int>.from(weekdays);
-                if (selected) {
-                  next.remove(day);
-                } else {
-                  next.add(day);
-                  next.sort();
-                }
-                onWeekdaysChanged(next);
-              },
-            );
-          }),
-        ),
-
         if (weekdays.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              'Atenção: nenhum dia selecionado — consulta nunca será executada.',
-              style: AppText.microLabel(dark: dark).copyWith(color: AppColors.orange),
-            ),
-          ),
-
-        const SizedBox(height: Sp.s12),
-
-        // Hour range
-        Text('Horário', style: AppText.caption(dark: dark)),
-        const SizedBox(height: Sp.s8),
+          _warning('Atenção: nenhum dia selecionado — consulta nunca será executada.'),
+        const SizedBox(height: 17),
         Row(
           children: [
             Expanded(
-              child: DropdownButtonFormField<int>(
-                initialValue: startHour,
-                decoration: const InputDecoration(
-                  labelText: 'Início',
-                  isDense: true,
-                ),
-                items: List.generate(
-                    24,
-                    (h) => DropdownMenuItem(
-                          value: h,
-                          child: Text('${h.toString().padLeft(2, '0')}:00'),
-                        )),
-                onChanged: (v) => onStartHourChanged(v ?? defaultScheduleStartHour),
-              ),
+              child: _hour(
+                  'Início', startHour, (v) => onStartHourChanged(v ?? defaultScheduleStartHour)),
             ),
-            const SizedBox(width: Sp.s12),
+            const SizedBox(width: 15),
             Expanded(
-              child: DropdownButtonFormField<int>(
-                initialValue: endHour,
-                decoration: const InputDecoration(
-                  labelText: 'Fim',
-                  isDense: true,
-                ),
-                items: List.generate(
-                    24,
-                    (h) => DropdownMenuItem(
-                          value: h,
-                          child: Text('${h.toString().padLeft(2, '0')}:00'),
-                        )),
-                onChanged: (v) => onEndHourChanged(v ?? defaultScheduleEndHour),
-              ),
+              child: _hour('Fim', endHour, (v) => onEndHourChanged(v ?? defaultScheduleEndHour)),
             ),
           ],
         ),
-
         if (startHour == endHour)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              'Atenção: início e fim iguais — consulta nunca será executada.',
-              style: AppText.microLabel(dark: dark).copyWith(color: AppColors.orange),
-            ),
-          ),
+          _warning('Atenção: início e fim iguais — consulta nunca será executada.'),
         if (startHour > endHour)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              'Janela noturna: monitora das ${startHour.toString().padLeft(2, '0')}h '
-              'até ${endHour.toString().padLeft(2, '0')}h do dia seguinte.',
-              style: AppText.microLabel(dark: dark).copyWith(color: AppColors.warmGray500),
-            ),
+          _warning(
+            'Janela noturna: monitora das ${startHour.toString().padLeft(2, '0')}h '
+            'até ${endHour.toString().padLeft(2, '0')}h do dia seguinte.',
+            danger: false,
           ),
       ],
     );
   }
 }
 
-class _DayChip extends StatelessWidget {
-  const _DayChip({
-    required this.label,
-    required this.selected,
-    required this.dark,
-    required this.onTap,
-  });
+/// Day-of-week toggle: bordered, filled with the accent when selected.
+class _DayButton extends StatelessWidget {
+  const _DayButton({required this.label, required this.selected, required this.onTap});
 
   final String label;
   final bool selected;
-  final bool dark;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final bg = selected ? AppColors.blue : (dark ? AppColors.darkCard : AppColors.warmWhite);
-    final fg = selected ? AppColors.white : (dark ? AppColors.darkMuted : AppColors.warmDark);
-    final border =
-        selected ? AppColors.blue : (dark ? AppColors.darkBorder : AppColors.borderLight);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 36,
-        height: 32,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(AppRadius.subtle),
-          border: Border.all(color: border),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: AppText.fontFamily,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: fg,
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final accent = AppColors.accent(dark: dark);
+    return Material(
+      color: selected ? accent : AppColors.field(dark: dark),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.standard),
+        side: BorderSide(color: selected ? accent : AppColors.border(dark: dark)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.standard),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Text(
+            label,
+            style: AppText.caption(dark: dark).copyWith(
+              fontSize: 11,
+              color: selected ? AppColors.onAccent(dark: dark) : AppColors.text(dark: dark),
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
           ),
         ),
       ),

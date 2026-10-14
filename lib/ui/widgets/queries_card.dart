@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../models/alert_rule.dart';
 import '../../models/monitored_query.dart';
-import '../../state/app_state.dart';
+import '../../services/redmine_api_service.dart';
 import '../../services/theme_service.dart';
+import '../../state/app_state.dart';
+import '../components.dart';
 import '../ui_utils.dart';
 import 'query_form_dialog.dart';
 
+/// "Consultas" page: header with "Nova consulta", name search and one row per query.
 class QueriesCard extends StatefulWidget {
   const QueriesCard({super.key});
 
@@ -16,288 +18,207 @@ class QueriesCard extends StatefulWidget {
 }
 
 class _QueriesCardState extends State<QueriesCard> {
-  final _filterController = TextEditingController();
+  final _search = TextEditingController();
   String _filter = '';
 
   @override
-  void initState() {
-    super.initState();
-    _filterController.addListener(() {
-      setState(() => _filter = _filterController.text.toLowerCase());
-    });
-  }
-
-  @override
   void dispose() {
-    _filterController.dispose();
+    _search.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final filtered = state.queries
-        .where((q) => q.name.toLowerCase().contains(_filter))
-        .toList();
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final q = searchKey(_filter.trim());
+    final filtered = state.queries.where((x) => searchKey(x.name).contains(q)).toList();
 
-    return Container(
-      decoration: surfaceCard(dark: dark),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PageHeader(
+          title: 'Consultas',
+          subtitle: 'Defina o que acompanhar, quando verificar e como ser notificado.',
+          actions: [
+            FilledButton.icon(
+              onPressed: () => openQueryForm(context),
+              icon: const Icon(Icons.add, size: 17),
+              label: const Text('Nova consulta'),
+            ),
+          ],
+        ),
+        FiltersPanel(
+          controls: [
+            SearchField(
+              controller: _search,
+              hint: 'Buscar consulta pelo nome…',
+              onChanged: (v) => setState(() => _filter = v),
+            ),
+          ],
+          summary: FilterSummary(
+            text: '${filtered.length} consulta${filtered.length == 1 ? '' : 's'}',
+            chips: [if (_filter.trim().isNotEmpty) 'Busca: ${_filter.trim()}'],
+            onClear: () => setState(() {
+              _search.clear();
+              _filter = '';
+            }),
+          ),
+        ),
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Text(
-                  'Consultas monitoradas',
-                  style: AppText.cardTitle(dark: dark),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: () => _openForm(context),
-                icon: const Icon(Icons.add),
-                label: const Text('Nova'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.notionBlue,
-                ),
-              ),
+              if (state.queries.isEmpty)
+                const EmptyState(text: 'Nenhuma consulta cadastrada ainda.')
+              else if (filtered.isEmpty)
+                const EmptyState(text: 'Nenhuma consulta encontrada.')
+              else
+                for (final query in filtered) _QueryRow(query: query),
             ],
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _filterController,
-            decoration: InputDecoration(
-              hintText: 'Filtrar por nome...',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _filter.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () => _filterController.clear(),
-                    )
-                  : null,
-              isDense: true,
-            ),
-          ),
-          const SizedBox(height: 14),
-          if (state.queries.isEmpty)
-            Text('Nenhuma consulta cadastrada ainda.', style: AppText.body(dark: dark))
-          else if (filtered.isEmpty)
-            Text('Nenhuma consulta encontrada para o filtro.', style: AppText.body(dark: dark))
-          else
-            ...filtered.map((query) => _QueryTile(query: query)),
-        ],
-      ),
+        ),
+      ],
     );
-  }
-
-  Future<void> _openForm(BuildContext context, [MonitoredQuery? query]) async {
-    final state = context.read<AppState>();
-    final result = await showDialog<MonitoredQuery>(
-      context: context,
-      builder: (_) => QueryFormDialog(initial: query),
-    );
-
-    if (result == null) return;
-
-    if (result.id == null) {
-      await state.addQuery(result);
-    } else {
-      await state.updateQuery(result);
-    }
   }
 }
 
-class _QueryTile extends StatelessWidget {
-  const _QueryTile({required this.query});
+/// Opens the query form; saves a new or edited query.
+Future<void> openQueryForm(BuildContext context, [MonitoredQuery? query]) async {
+  final state = context.read<AppState>();
+  final result = await showAppDialog<MonitoredQuery>(
+    context,
+    (_) => QueryFormDialog(initial: query),
+  );
+  if (result == null) return;
+  if (result.id == null) {
+    await state.addQuery(result);
+  } else {
+    await state.updateQuery(result);
+  }
+}
+
+class _QueryRow extends StatelessWidget {
+  const _QueryRow({required this.query});
 
   final MonitoredQuery query;
+
+  static const _days = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+
+  String get _interval => query.pollSeconds % 60 == 0
+      ? 'A cada ${query.pollSeconds ~/ 60} min'
+      : 'A cada ${query.pollSeconds}s';
+
+  String get _schedule {
+    final days = query.scheduleWeekdays;
+    final dayText = days.length == 5 && days.every((d) => d <= 5)
+        ? 'Seg–Sex'
+        : days.map((d) => _days[(d - 1).clamp(0, 6)]).join(', ');
+    String h(int v) => '${v.toString().padLeft(2, '0')}h';
+    return '$dayText ${h(query.scheduleStartHour)}–${h(query.scheduleEndHour)}';
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final rules = query.alertRules;
+    final source =
+        SavedQuery.idFromEndpoint(query.endpoint) != null ? 'Consulta salva' : 'URL manual';
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: Sp.s8),
-      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-      decoration: BoxDecoration(
-        color: dark ? const Color(0xFF2A2825) : AppColors.warmWhite,
-        border: Border.all(
-          color: query.lastError != null
-              ? AppColors.orange.withValues(alpha: 0.5)
-              : (dark ? AppColors.darkBorder : AppColors.whisperBorder),
-          width: 1,
-        ),
-        borderRadius: BorderRadius.circular(AppRadius.standard),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return ListRow(
+      leading: IconBox(icon: query.pinned ? Icons.push_pin_outlined : Icons.search),
+      title: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    if (query.pinned) ...[
-                      const Tooltip(
-                        message: 'Fixada no menu como board',
-                        child: Icon(Icons.push_pin, size: 14, color: AppColors.notionBlue),
-                      ),
-                      const SizedBox(width: 4),
-                    ],
-                    Expanded(
-                      child: Text(
-                        query.name,
-                        style: AppText.bodySemibold(dark: dark),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    if (query.lastError != null) ...[
-                      _ErrorBadge(query: query),
-                      const SizedBox(width: 4),
-                    ],
-                    _StatusBadge(enabled: query.enabled),
-                    const SizedBox(width: 4),
-                    _RulesBadge(rules: query.alertRules),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    const Icon(Icons.schedule_outlined, size: 13, color: AppColors.warmGray500),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Última verificação: ${fmtDateTime(query.lastCheckedAt)}',
-                      style: AppText.microLabel(dark: dark),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    const Icon(Icons.tag, size: 13, color: AppColors.warmGray500),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Contagem atual: ${query.lastCount ?? '-'}',
-                      style: AppText.microLabel(dark: dark),
-                    ),
-                    const SizedBox(width: 10),
-                    const Icon(Icons.timer_outlined, size: 13, color: AppColors.warmGray500),
-                    const SizedBox(width: 4),
-                    Text(
-                      'A cada ${query.pollSeconds}s',
-                      style: AppText.microLabel(dark: dark),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          Text(query.name),
+          Tag(
+            query.enabled ? 'Ativa' : 'Pausada',
+            tone: query.enabled ? TagTone.green : TagTone.amber,
           ),
-          const SizedBox(width: 4),
-          // Ações compactas
-          Material(
-            type: MaterialType.transparency,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Tooltip(
-                  message: 'Abrir consulta no Redmine',
-                  child: InkWell(
-                    onTap: () => openRedmineLink(context, query.directUrl),
-                    borderRadius: BorderRadius.circular(AppRadius.micro),
-                    child: const Padding(
-                      padding: EdgeInsets.all(6.0),
-                      child: Icon(Icons.open_in_new, size: 18, color: AppColors.warmGray500),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Theme(
-                  data: Theme.of(context).copyWith(
-                    iconTheme: const IconThemeData(color: AppColors.warmGray500, size: 18),
-                  ),
-                  child: PopupMenuButton<_QueryAction>(
-                    tooltip: 'Mais ações',
-                    icon: const Icon(Icons.more_vert, size: 18, color: AppColors.warmGray500),
-                    onSelected: (action) => _handleAction(context, state, action),
-                    itemBuilder: (_) => [
-                      PopupMenuItem(
-                        value: _QueryAction.runNow,
-                        enabled: query.id != null,
-                        child: const ListTile(
-                          leading: Icon(Icons.play_circle_outline),
-                          title: Text('Executar agora'),
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _QueryAction.toggle,
-                        child: ListTile(
-                          leading: Icon(query.enabled
-                              ? Icons.pause_circle_outline
-                              : Icons.play_arrow_outlined),
-                          title: Text(query.enabled ? 'Pausar' : 'Ativar'),
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _QueryAction.pin,
-                        enabled: query.id != null,
-                        child: ListTile(
-                          leading: Icon(
-                            query.pinned ? Icons.push_pin : Icons.push_pin_outlined,
-                          ),
-                          title: Text(query.pinned ? 'Desafixar board' : 'Fixar como board'),
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: _QueryAction.edit,
-                        child: ListTile(
-                          leading: Icon(Icons.edit_outlined),
-                          title: Text('Editar'),
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: _QueryAction.duplicate,
-                        child: ListTile(
-                          leading: Icon(Icons.copy_outlined),
-                          title: Text('Duplicar'),
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                        ),
-                      ),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(
-                        value: _QueryAction.delete,
-                        child: ListTile(
-                          leading: Icon(Icons.delete_outline),
-                          title: Text('Excluir'),
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          if (query.lastError != null)
+            Tooltip(
+              message: 'Falhou em ${fmtDateTime(query.lastErrorAt)}\n${query.lastError}',
+              child: const Tag('Falhou', tone: TagTone.red, icon: Icons.error_outline),
             ),
-          ),
+          if (query.pinned) const Tag('Board', tone: TagTone.accent),
         ],
       ),
+      meta: [
+        Text('${query.lastCount ?? '-'} tarefas · $_interval · $_schedule'),
+        Text(
+          [
+            rules.isEmpty ? 'Sem regras (nunca notifica)' : rules.map((r) => r.label).join(' · '),
+            source,
+            'Última verificação ${fmtDateTime(query.lastCheckedAt)}',
+          ].join(' · '),
+        ),
+      ],
+      actions: [
+        IconBtn(
+          compact: true,
+          icon: Icons.open_in_new,
+          tooltip: 'Abrir consulta no Redmine',
+          onPressed: () => openRedmineLink(context, query.directUrl),
+        ),
+        IconBtn(
+          compact: true,
+          icon: Icons.edit_outlined,
+          tooltip: 'Editar consulta',
+          onPressed: () => openQueryForm(context, query),
+        ),
+        PopupMenuButton<_QueryAction>(
+          tooltip: 'Ações da consulta',
+          onSelected: (action) => _handleAction(state, action),
+          itemBuilder: (_) => [
+            _item(
+              _QueryAction.runNow,
+              Icons.play_circle_outline,
+              'Executar agora',
+              enabled: query.id != null,
+            ),
+            _item(
+              _QueryAction.toggle,
+              query.enabled ? Icons.pause_circle_outline : Icons.play_arrow,
+              query.enabled ? 'Pausar' : 'Ativar',
+            ),
+            _item(
+              _QueryAction.pin,
+              query.pinned ? Icons.push_pin : Icons.push_pin_outlined,
+              query.pinned ? 'Desafixar board' : 'Fixar como board',
+              enabled: query.id != null,
+            ),
+            _item(_QueryAction.duplicate, Icons.copy_outlined, 'Duplicar'),
+            const PopupMenuDivider(),
+            _item(_QueryAction.delete, Icons.delete_outline, 'Excluir'),
+          ],
+          // The popup handles the tap; the button is only the visual.
+          child: IgnorePointer(
+            child: IconBtn(
+              compact: true,
+              icon: Icons.more_horiz,
+              tooltip: 'Ações da consulta',
+              onPressed: () {},
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Future<void> _handleAction(
-      BuildContext context, AppState state, _QueryAction action) async {
+  PopupMenuItem<_QueryAction> _item(
+    _QueryAction value,
+    IconData icon,
+    String label, {
+    bool enabled = true,
+  }) =>
+      PopupMenuItem(
+        value: value,
+        enabled: enabled,
+        child: Row(children: [Icon(icon, size: 18), const SizedBox(width: 12), Text(label)]),
+      );
+
+  Future<void> _handleAction(AppState state, _QueryAction action) async {
     switch (action) {
       case _QueryAction.runNow:
         if (query.id != null) await state.runQueryNow(query.id!);
@@ -307,102 +228,10 @@ class _QueryTile extends StatelessWidget {
         await state.togglePinned(query);
       case _QueryAction.duplicate:
         await state.duplicateQuery(query);
-      case _QueryAction.edit:
-        if (!context.mounted) return;
-        final result = await showDialog<MonitoredQuery>(
-          context: context,
-          builder: (_) => QueryFormDialog(initial: query),
-        );
-        if (result != null) await state.updateQuery(result);
       case _QueryAction.delete:
         if (query.id != null) await state.deleteQuery(query.id!);
     }
   }
 }
 
-enum _QueryAction { runNow, toggle, pin, edit, duplicate, delete }
-
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.enabled});
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: enabled
-            ? AppColors.green.withValues(alpha: 0.12)
-            : AppColors.warmGray300.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Text(
-        enabled ? 'Ativa' : 'Pausada',
-        style: AppText.badge().copyWith(
-          color: enabled ? AppColors.green : AppColors.warmGray500,
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorBadge extends StatelessWidget {
-  const _ErrorBadge({required this.query});
-  final MonitoredQuery query;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Falhou em ${fmtDateTime(query.lastErrorAt)}\n${query.lastError}',
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: AppColors.orange.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 12, color: AppColors.orange),
-            const SizedBox(width: 4),
-            Text('Falhou', style: AppText.badge().copyWith(color: AppColors.orange)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RulesBadge extends StatelessWidget {
-  const _RulesBadge({required this.rules});
-  final List<AlertRule> rules;
-
-  @override
-  Widget build(BuildContext context) {
-    final first = rules.firstOrNull;
-    final color = switch (first?.op) {
-      null => AppColors.warmGray500,
-      ruleIncrease => AppColors.green,
-      ruleDecrease => AppColors.orange,
-      _ => AppColors.notionBlue,
-    };
-    final label = first == null
-        ? 'Sem regras'
-        : rules.length > 1
-            ? '${first.label} +${rules.length - 1}'
-            : first.label;
-    return Tooltip(
-      message: rules.isEmpty
-          ? 'Nenhuma regra: esta consulta nunca notifica.'
-          : rules.map((r) => r.label).join('\n'),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-        ),
-        child: Text(label, style: AppText.badge().copyWith(color: color)),
-      ),
-    );
-  }
-}
+enum _QueryAction { runNow, toggle, pin, duplicate, delete }

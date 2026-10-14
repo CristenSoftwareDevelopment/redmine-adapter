@@ -54,12 +54,12 @@ class AlertRule {
   }
 
   String get label => switch (op) {
-        ruleIncrease => '↑ Aumento',
-        ruleDecrease => '↓ Diminuição',
+        ruleIncrease => 'Aumento',
+        ruleDecrease => 'Diminuição',
         ruleEq => '= $value',
         ruleLte => '≤ $value',
         ruleGte => '≥ $value',
-        _ => '↕ Qualquer',
+        _ => 'Qualquer mudança',
       };
 
   static AlertRule? firstMatch(List<AlertRule> rules, int previous, int current) {
