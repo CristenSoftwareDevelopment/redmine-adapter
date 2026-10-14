@@ -14,9 +14,11 @@ Web e mobile sao suportes secundarios.
 - Exibe alertas in-app e notificacoes locais com o mesmo texto.
 - Marca com badge "Falhou" a consulta cuja ultima verificacao deu erro.
 - Fixa consultas no menu como board (estilo Jira) ou lista; arrastar o card muda o status
-  no Redmine e o card abre um modal com os detalhes da tarefa.
-- Times e horas (somente API key de administrador): horas por pessoa e dia, detalhadas
-  por tarefa ou por tipo de atividade.
+  no Redmine. As colunas (status) visiveis sao escolhidas por board e ficam salvas.
+- Abre a tarefa num modal com a descricao e o historico renderizados em Markdown.
+- Times e horas: os membros vem dos projetos do Redmine (nao precisa ser admin); horas por
+  pessoa e dia, detalhadas por tarefa ou por tipo de atividade. So aparecem as horas que o seu
+  papel pode ver (permissao "Ver tempo gasto").
 - Persiste dados em SQLite (`settings`, `queries`, `alerts`, `monitor_logs`, `teams`).
 - Permite backup/restauracao de configuracao, consultas e times.
 - Suporta tema claro, escuro e sistema.
@@ -158,5 +160,7 @@ O texto renderizado fica gravado no alerta.
 ## Observacoes
 
 - O monitoramento acontece enquanto o app esta aberto.
+- Textos do Redmine sao renderizados como Markdown (`flutter_markdown_plus`). Instancias
+  configuradas com Textile aparecem quase como texto puro.
 - No Web, dados ficam no `IndexedDB` e sao separados por origem (`host:porta`).
 - Para manter os dados no desenvolvimento Web, use sempre `--web-port 64451`.

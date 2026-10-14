@@ -58,8 +58,9 @@ lib/
   models/                 — pure data classes (AlertRule, AlertEvent, MonitoredQuery, Team, TimeEntry, …)
   ui/
     home_screen.dart      — root scaffold: collapsible sidebar (pages + pinned boards)
-    board/                — board/list of a pinned query, issue detail dialog
-    teams/                — teams + time report (admin only)
+    board/                — board/list of a pinned query (columns saved in queries.board_statuses),
+                            issue detail dialog (Markdown via flutter_markdown_plus)
+    teams/                — teams (members from /projects/:id/memberships.json) + time report
     widgets/              — per-page cards and the query form
     ui_utils.dart         — fmtDateTime/fmtDate, openRedmineLink, LabelPill, UserAvatar
 
