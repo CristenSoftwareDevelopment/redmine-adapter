@@ -22,9 +22,14 @@ class IssueDetailDialog extends StatefulWidget {
   State<IssueDetailDialog> createState() => _IssueDetailDialogState();
 }
 
+enum _Tab { description, history, attachments, children }
+
 class _IssueDetailDialogState extends State<IssueDetailDialog> {
   RedmineIssue? _full;
   String? _error;
+
+  /// Long descriptions used to push the history out of sight: one tab each.
+  _Tab _tab = _Tab.description;
 
   static const _fieldLabels = {
     'status_id': 'Status',
@@ -109,24 +114,48 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
           Flexible(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final main = _mainContent(issue, dark);
+                final tabs = Container(
+                  padding: const EdgeInsets.fromLTRB(22, 14, 22, 14),
+                  decoration: BoxDecoration(border: Border(bottom: BorderSide(color: border))),
+                  child: Align(alignment: Alignment.centerLeft, child: _tabBar(issue)),
+                );
+                final content = _tabContent(issue, dark);
                 final side = _attributes(issue, dark);
                 if (constraints.maxWidth < 700) {
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.all(22),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [main, const SizedBox(height: Sp.s24), side],
-                    ),
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      tabs,
+                      Expanded(
+                        child: SingleChildScrollView(
+                          key: ValueKey(_tab),
+                          padding: const EdgeInsets.all(22),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [content, const SizedBox(height: Sp.s24), side],
+                          ),
+                        ),
+                      ),
+                    ],
                   );
                 }
                 return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(22),
-                        child: main,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          tabs,
+                          // Each tab scrolls on its own and starts at the top.
+                          Expanded(
+                            child: SingleChildScrollView(
+                              key: ValueKey(_tab),
+                              padding: const EdgeInsets.all(22),
+                              child: content,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     Container(width: 1, color: border),
@@ -144,6 +173,31 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  List<Map> _list(RedmineIssue issue, String key) =>
+      (issue.json[key] as List? ?? const []).cast<Map>();
+
+  Widget _tabBar(RedmineIssue issue) {
+    final journals = _list(issue, 'journals');
+    final attachments = _list(issue, 'attachments');
+    final children = _list(issue, 'children');
+    return AppTabs<_Tab>(
+      tabs: [
+        (_Tab.description, 'Descrição', Icons.description_outlined),
+        (
+          _Tab.history,
+          _full == null ? 'Histórico' : 'Histórico (${journals.length})',
+          Icons.history,
+        ),
+        if (attachments.isNotEmpty)
+          (_Tab.attachments, 'Anexos (${attachments.length})', Icons.attach_file),
+        if (children.isNotEmpty)
+          (_Tab.children, 'Subtarefas (${children.length})', Icons.account_tree_outlined),
+      ],
+      selected: _tab,
+      onChanged: (t) => setState(() => _tab = t),
     );
   }
 
@@ -206,73 +260,60 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
     );
   }
 
-  Widget _section(String title, bool dark) => Padding(
-        padding: const EdgeInsets.only(top: Sp.s16, bottom: Sp.s8),
-        child: Text(
-          title.toUpperCase(),
-          style: AppText.microLabel(dark: dark).copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
-          ),
-        ),
-      );
+  Widget _tabContent(RedmineIssue issue, bool dark) {
+    final attachments = _list(issue, 'attachments');
+    final children = _list(issue, 'children');
+    final journals = _list(issue, 'journals').reversed;
 
-  Widget _mainContent(RedmineIssue issue, bool dark) {
-    final attachments = (issue.json['attachments'] as List? ?? const []).cast<Map>();
-    final children = (issue.json['children'] as List? ?? const []).cast<Map>();
-    final journals = (issue.json['journals'] as List? ?? const []).cast<Map>().reversed;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'DESCRIÇÃO',
-          style: AppText.microLabel(dark: dark).copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(height: Sp.s8),
-        if (issue.description.trim().isEmpty)
-          Text('Sem descrição.', style: AppText.captionLight(dark: dark))
-        else
-          _markdown(issue.description, issue, dark),
-        if (attachments.isNotEmpty) ...[
-          _section('Anexos', dark),
-          for (final a in attachments)
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.accent(dark: dark),
-                padding: EdgeInsets.zero,
-                alignment: Alignment.centerLeft,
-              ),
-              onPressed: () => openRedmineLink(context, a['content_url'] as String? ?? ''),
-              icon: const Icon(Icons.attach_file, size: 16),
-              label: Text('${a['filename']}'),
-            ),
-        ],
-        if (children.isNotEmpty) ...[
-          _section('Subtarefas', dark),
-          for (final c in children)
-            Padding(
-              padding: const EdgeInsets.only(bottom: Sp.s4),
-              child: Text('#${c['id']}  ${c['subject']}', style: AppText.body(dark: dark)),
-            ),
-        ],
-        _section('Histórico', dark),
-        if (_full == null && _error == null)
-          const LinearProgressIndicator(minHeight: 2)
-        else if (_error != null)
-          Text(
+    switch (_tab) {
+      case _Tab.description:
+        return issue.description.trim().isEmpty
+            ? Text('Sem descrição.', style: AppText.captionLight(dark: dark))
+            : _markdown(issue.description, issue, dark);
+      case _Tab.history:
+        if (_full == null && _error == null) return const LinearProgressIndicator(minHeight: 2);
+        if (_error != null) {
+          return Text(
             'Não foi possível carregar o histórico: $_error',
             style: AppText.caption(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
-          )
-        else if (journals.isEmpty)
-          Text('Sem histórico.', style: AppText.captionLight(dark: dark))
-        else
-          for (final j in journals) _journal(j, dark),
-      ],
-    );
+          );
+        }
+        if (journals.isEmpty) {
+          return Text('Sem histórico.', style: AppText.captionLight(dark: dark));
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final j in journals) _journal(j, dark)],
+        );
+      case _Tab.attachments:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final a in attachments)
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.accent(dark: dark),
+                  padding: EdgeInsets.zero,
+                  alignment: Alignment.centerLeft,
+                ),
+                onPressed: () => openRedmineLink(context, a['content_url'] as String? ?? ''),
+                icon: const Icon(Icons.attach_file, size: 16),
+                label: Text('${a['filename']}'),
+              ),
+          ],
+        );
+      case _Tab.children:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final c in children)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Sp.s8),
+                child: Text('#${c['id']}  ${c['subject']}', style: AppText.body(dark: dark)),
+              ),
+          ],
+        );
+    }
   }
 
   Widget _journal(Map journal, bool dark) {
