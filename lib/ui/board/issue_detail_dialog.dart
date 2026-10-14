@@ -63,7 +63,8 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
     try {
       final entries = await RedmineApiService().getAllPages(
         context.read<AppState>().settings,
-        '/time_entries.json?issue_id=${widget.issue.id}',
+        // "~" = the issue or any of its subtasks, matching the total shown in "Tempo gasto".
+        '/time_entries.json?f[]=issue_id&op[issue_id]=~&v[issue_id][]=${widget.issue.id}',
         'time_entries',
         cap: 2000,
       );
@@ -336,16 +337,56 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
         );
       case _Tab.children:
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final c in children)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Sp.s8),
-                child: Text('#${c['id']}  ${c['subject']}', style: AppText.body(dark: dark)),
-              ),
-          ],
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [for (final c in children) _childRow(RedmineIssue(c.cast()), dark)],
         );
     }
+  }
+
+  /// Subtask row; opens the subtask in its own modal on top of this one.
+  Widget _childRow(RedmineIssue child, bool dark) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Sp.s8),
+      child: Material(
+        color: AppColors.field(dark: dark),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.standard),
+          side: BorderSide(color: AppColors.border(dark: dark)),
+        ),
+        child: InkWell(
+          onTap: () => showIssueDetail(context, child),
+          hoverColor: AppColors.cellHover(dark: dark),
+          borderRadius: BorderRadius.circular(AppRadius.standard),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                if (child.trackerName.isNotEmpty) ...[
+                  Tag.hashed(child.trackerName),
+                  const SizedBox(width: 10),
+                ],
+                Text(
+                  '#${child.id}',
+                  style: AppText.microLabel(dark: dark).copyWith(
+                    color: AppColors.accent(dark: dark),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    child.subject,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(dark: dark),
+                  ),
+                ),
+                Icon(Icons.chevron_right, size: 18, color: AppColors.mutedText(dark: dark)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Totals per person, then each entry (newest first).
@@ -400,7 +441,12 @@ class _IssueDetailDialogState extends State<IssueDetailDialog> {
                           children: [
                             TextSpan(text: e.userName, style: AppText.bodySemibold(dark: dark)),
                             TextSpan(
-                              text: '  ${fmtDate(_ymd(e.day))} · ${e.activity}',
+                              text: [
+                                '  ${fmtDate(_ymd(e.day))}',
+                                e.activity,
+                                if (e.issueId != null && e.issueId != widget.issue.id)
+                                  'subtarefa #${e.issueId}',
+                              ].join(' · '),
                               style: AppText.microLabel(dark: dark),
                             ),
                           ],
