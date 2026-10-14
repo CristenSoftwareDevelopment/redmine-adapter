@@ -6,6 +6,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../state/app_state.dart';
 import '../services/theme_service.dart';
+import 'board/board_view.dart';
 import 'onboarding_screen.dart';
 import 'widgets/alerts_card.dart';
 import 'widgets/logs_card.dart';
@@ -29,6 +30,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListener {
   String _lastAlertKey = '';
   _Page _page = _Page.monitoring;
+
+  /// Pinned query shown as a board over the regular pages, if any.
+  int? _boardQueryId;
 
   /// User choice; null = automatic (collapsed on narrow windows).
   bool? _collapsed;
@@ -98,6 +102,9 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
         final collapsed = _collapsed ?? MediaQuery.sizeOf(context).width < 900;
         final unreadAlerts = appState.alerts.where((a) => !a.isRead).length;
         final failedQueries = appState.queries.where((q) => q.lastError != null).length;
+        final pinned = appState.queries.where((q) => q.pinned && q.id != null).toList();
+        final board = pinned.where((q) => q.id == _boardQueryId).firstOrNull;
+        if (board == null) _boardQueryId = null; // board was unpinned or deleted
         final sidebarBg = dark ? AppColors.darkCard : AppColors.pureWhite;
         final contentBg = dark ? AppColors.darkSurface : AppColors.warmWhite;
         final borderColor = dark ? AppColors.darkBorder : AppColors.whisperBorder;
@@ -164,6 +171,18 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                             badge: failedQueries,
                             badgeColor: AppColors.orange,
                           ),
+                          if (pinned.isNotEmpty) _SectionLabel('Boards', dark: dark),
+                          for (final q in pinned)
+                            _NavItem(
+                              icon: Icons.view_kanban_outlined,
+                              label: q.name,
+                              selected: board?.id == q.id,
+                              dark: dark,
+                              badge: q.lastError != null ? '!' : q.lastCount?.toString(),
+                              badgeColor:
+                                  q.lastError != null ? AppColors.orange : AppColors.warmGray500,
+                              onTap: () => setState(() => _boardQueryId = q.id),
+                            ),
                         ],
                       ),
                     ),
@@ -206,7 +225,14 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Row(
                         children: [
-                          Text(_pageTitle, style: AppText.bodySemibold(dark: dark)),
+                          Flexible(
+                            child: Text(
+                              board == null ? _pageTitle : 'Boards  ›  ${board.name}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.bodySemibold(dark: dark),
+                            ),
+                          ),
                           const SizedBox(width: 12),
                           if (!appState.isProductionDatabase)
                             _EnvironmentBadge(
@@ -243,13 +269,22 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
 
                     // Content
                     Expanded(
-                      child: IndexedStack(
-                        index: _page.index,
-                        children: const [
-                          _MonitoringTab(),
-                          _QueriesTab(),
-                          _SettingsTab(),
-                          _LogsTab(),
+                      child: Stack(
+                        children: [
+                          // Offstage keeps the pages' state while a board is open.
+                          Offstage(
+                            offstage: board != null,
+                            child: IndexedStack(
+                              index: _page.index,
+                              children: const [
+                                _MonitoringTab(),
+                                _QueriesTab(),
+                                _SettingsTab(),
+                                _LogsTab(),
+                              ],
+                            ),
+                          ),
+                          if (board != null) BoardView(key: ValueKey(board.id), query: board),
                         ],
                       ),
                     ),
@@ -279,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
     int badge = 0,
     Color badgeColor = AppColors.notionBlue,
   }) {
-    final selected = _page == page;
+    final selected = _page == page && _boardQueryId == null;
     return _NavItem(
       icon: selected ? activeIcon : icon,
       label: label,
@@ -287,7 +322,10 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
       dark: dark,
       badge: badge > 0 ? '$badge' : null,
       badgeColor: badgeColor,
-      onTap: () => setState(() => _page = page),
+      onTap: () => setState(() {
+        _page = page;
+        _boardQueryId = null;
+      }),
     );
   }
 

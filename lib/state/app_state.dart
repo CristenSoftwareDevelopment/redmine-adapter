@@ -208,6 +208,12 @@ class AppState extends ChangeNotifier {
     await updateQuery(query.copyWith(enabled: !query.enabled));
   }
 
+  /// Pins/unpins a query as a sidebar board without restarting the monitor.
+  Future<void> togglePinned(MonitoredQuery query) async {
+    await _databaseService.updateQuery(query.copyWith(pinned: !query.pinned));
+    await refreshData();
+  }
+
   Future<void> duplicateQuery(MonitoredQuery query) async {
     final duplicate = query.copyWith(
       id: null,

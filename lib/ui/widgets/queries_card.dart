@@ -141,6 +141,13 @@ class _QueryTile extends StatelessWidget {
               children: [
                 Row(
                   children: [
+                    if (query.pinned) ...[
+                      const Tooltip(
+                        message: 'Fixada no menu como board',
+                        child: Icon(Icons.push_pin, size: 14, color: AppColors.notionBlue),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
                     Expanded(
                       child: Text(
                         query.name,
@@ -238,6 +245,18 @@ class _QueryTile extends StatelessWidget {
                           dense: true,
                         ),
                       ),
+                      PopupMenuItem(
+                        value: _QueryAction.pin,
+                        enabled: query.id != null,
+                        child: ListTile(
+                          leading: Icon(
+                            query.pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                          ),
+                          title: Text(query.pinned ? 'Desafixar board' : 'Fixar como board'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        ),
+                      ),
                       const PopupMenuItem(
                         value: _QueryAction.edit,
                         child: ListTile(
@@ -284,6 +303,8 @@ class _QueryTile extends StatelessWidget {
         if (query.id != null) await state.runQueryNow(query.id!);
       case _QueryAction.toggle:
         await state.toggleQueryEnabled(query);
+      case _QueryAction.pin:
+        await state.togglePinned(query);
       case _QueryAction.duplicate:
         await state.duplicateQuery(query);
       case _QueryAction.edit:
@@ -297,10 +318,9 @@ class _QueryTile extends StatelessWidget {
         if (query.id != null) await state.deleteQuery(query.id!);
     }
   }
-
 }
 
-enum _QueryAction { runNow, toggle, edit, duplicate, delete }
+enum _QueryAction { runNow, toggle, pin, edit, duplicate, delete }
 
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge({required this.enabled});

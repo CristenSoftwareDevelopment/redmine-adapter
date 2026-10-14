@@ -27,6 +27,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
   late final TextEditingController _pollSeconds;
   late final List<_RuleDraft> _rules;
   bool _enabled = true;
+  bool _pinned = false;
   bool _showAdvanced = false;
 
   // Source of the query: a saved Redmine query (picker) or a pasted URL.
@@ -53,6 +54,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     );
     _rules = (item?.alertRules ?? const [AlertRule()]).map(_RuleDraft.new).toList();
     _enabled = item?.enabled ?? true;
+    _pinned = item?.pinned ?? false;
     _scheduleWeekdays = List<int>.from(item?.scheduleWeekdays ?? defaultScheduleWeekdays);
     _scheduleStartHour = item?.scheduleStartHour ?? defaultScheduleStartHour;
     _scheduleEndHour = item?.scheduleEndHour ?? defaultScheduleEndHour;
@@ -224,38 +226,17 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                       ),
                       const SizedBox(height: Sp.s16),
 
-                      // Consulta ativa custom switch
-                      InkWell(
-                        onTap: () => setState(() => _enabled = !_enabled),
-                        borderRadius: BorderRadius.circular(AppRadius.subtle),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: Sp.s8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('Consulta ativa', style: AppText.body(dark: dark)),
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                width: 36,
-                                height: 20,
-                                padding: const EdgeInsets.all(2),
-                                decoration: BoxDecoration(
-                                  color: _enabled ? AppColors.notionBlue : AppColors.warmGray300,
-                                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                                ),
-                                alignment: _enabled ? Alignment.centerRight : Alignment.centerLeft,
-                                child: Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.pureWhite,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                      _ToggleRow(
+                        label: 'Consulta ativa',
+                        value: _enabled,
+                        dark: dark,
+                        onChanged: (v) => setState(() => _enabled = v),
+                      ),
+                      _ToggleRow(
+                        label: 'Fixar no menu como board',
+                        value: _pinned,
+                        dark: dark,
+                        onChanged: (v) => setState(() => _pinned = v),
                       ),
 
                       Divider(
@@ -574,6 +555,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
       countPath: _countPath.text.trim(),
       pollSeconds: int.parse(_pollSeconds.text.trim()),
       enabled: _enabled,
+      pinned: _pinned,
       alertRules: _rules.map((r) => r.toRule()).toList(),
       lastCount: widget.initial?.lastCount,
       lastCheckedAt: widget.initial?.lastCheckedAt,
@@ -654,6 +636,56 @@ class _ResolvedUrls {
 
   final String endpoint;
   final String directUrl;
+}
+
+class _ToggleRow extends StatelessWidget {
+  const _ToggleRow({
+    required this.label,
+    required this.value,
+    required this.dark,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final bool dark;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(AppRadius.subtle),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Sp.s8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: AppText.body(dark: dark)),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 36,
+              height: 20,
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: value ? AppColors.notionBlue : AppColors.warmGray300,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: const BoxDecoration(
+                  color: AppColors.pureWhite,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ─── Schedule section ─────────────────────────────────────────────────────────
