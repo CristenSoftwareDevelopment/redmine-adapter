@@ -9,6 +9,7 @@ import '../models/app_settings.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
 import '../models/query_health.dart';
+import '../models/team.dart';
 import '../services/database_service.dart';
 import '../services/monitor_service.dart';
 import '../services/notifications/alert_notifier.dart';
@@ -41,6 +42,10 @@ class AppState extends ChangeNotifier {
   List<MonitoredQuery> queries = const [];
   List<AlertEvent> alerts = const [];
   List<MonitorLog> monitorLogs = const [];
+  List<Team> teams = const [];
+
+  /// Admin accounts get the Teams/time report (it needs `/users.json`).
+  bool isAdmin = false;
 
   bool loading = true;
   bool monitoring = false;
@@ -87,6 +92,7 @@ class AppState extends ChangeNotifier {
           }
           invalidCredentials = false;
           onboardingErrorMessage = null;
+          unawaited(_refreshAdmin());
         } catch (error) {
           final message = error.toString().replaceFirst('Exception: ', '');
           invalidCredentials = message.startsWith('Credenciais inválidas');
@@ -121,6 +127,7 @@ class AppState extends ChangeNotifier {
     queries = await _databaseService.listQueries();
     alerts = await _databaseService.listAlerts();
     monitorLogs = await _databaseService.listMonitorLogs();
+    teams = await _databaseService.listTeams();
     notifyListeners();
   }
 
@@ -169,6 +176,22 @@ class AppState extends ChangeNotifier {
     await _monitorService.restart();
     monitoring = true;
     notifyListeners();
+    unawaited(_refreshAdmin());
+  }
+
+  Future<void> _refreshAdmin() async {
+    isAdmin = await RedmineApiService().isAdmin(settings);
+    notifyListeners();
+  }
+
+  Future<void> saveTeam(Team team) async {
+    await _databaseService.saveTeam(team);
+    await refreshData();
+  }
+
+  Future<void> deleteTeam(int id) async {
+    await _databaseService.deleteTeam(id);
+    await refreshData();
   }
 
   Future<void> signOut() async {
@@ -179,6 +202,7 @@ class AppState extends ChangeNotifier {
     );
     await _databaseService.saveSettings(clearedSettings);
     settings = clearedSettings;
+    isAdmin = false;
     invalidCredentials = false;
     onboardingErrorMessage = null;
     if (monitoring) {

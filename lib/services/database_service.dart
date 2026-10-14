@@ -8,6 +8,7 @@ import '../models/alert_event.dart';
 import '../models/app_settings.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
+import '../models/team.dart';
 
 class DatabaseService {
   DatabaseService._();
@@ -538,6 +539,31 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [queryId],
     );
+  }
+
+  Future<List<Team>> listTeams() async {
+    final database = await db;
+    final rows = await database.query('teams', orderBy: 'name ASC');
+    return rows.map(Team.fromDbMap).toList();
+  }
+
+  Future<void> saveTeam(Team team) async {
+    final database = await db;
+    if (team.id == null) {
+      await database.insert('teams', team.toDbMap());
+    } else {
+      await database.update('teams', team.toDbMap(), where: 'id = ?', whereArgs: [team.id]);
+    }
+  }
+
+  Future<void> deleteTeam(int id) async {
+    final database = await db;
+    await database.delete('teams', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearTeams() async {
+    final database = await db;
+    await database.delete('teams');
   }
 
   Future<List<AlertEvent>> listAlerts({int limit = 100}) async {

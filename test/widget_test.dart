@@ -6,6 +6,7 @@ import 'package:redmine_monitor_flutter/models/alert_event.dart';
 import 'package:redmine_monitor_flutter/models/alert_rule.dart';
 import 'package:redmine_monitor_flutter/models/app_settings.dart';
 import 'package:redmine_monitor_flutter/models/monitored_query.dart';
+import 'package:redmine_monitor_flutter/models/time_entry.dart';
 import 'package:redmine_monitor_flutter/services/notifications/notification_template_service.dart';
 import 'package:redmine_monitor_flutter/services/database_service.dart';
 import 'package:redmine_monitor_flutter/services/redmine_api_service.dart';
@@ -174,5 +175,28 @@ void main() {
     expect(saved?.name, 'Fila do dev');
     expect(saved?.endpoint, '/issues.json?assigned_to_id=me');
     expect(saved?.alertRules.map((r) => r.label), ['↕ Qualquer', '= 1']);
+  });
+
+  test('time entries sum by person/day and by activity', () {
+    Map<String, dynamic> raw(int user, String day, num hours, String activity, int? issue) => {
+          'user': {'id': user, 'name': 'U$user'},
+          'spent_on': day,
+          'hours': hours,
+          'activity': {'id': 1, 'name': activity},
+          if (issue != null) 'issue': {'id': issue},
+        };
+    final entries = [
+      raw(1, '2026-10-13', 2.5, 'Desenvolvimento', 10),
+      raw(1, '2026-10-13', 1, 'Reunião', null),
+      raw(2, '2026-10-14', 4, 'Desenvolvimento', 10),
+    ].map(TimeEntry.fromJson).toList();
+
+    final byUserDay = sumHours(entries, (e) => (e.userId, e.day));
+    expect(byUserDay[(1, DateTime(2026, 10, 13))], 3.5);
+    expect(byUserDay[(2, DateTime(2026, 10, 14))], 4);
+    expect(sumHours(entries, (e) => e.activity)['Desenvolvimento'], 6.5);
+    expect(sumHours(entries, (e) => e.issueId)[null], 1);
+    expect(fmtHours(3.5), '3,5');
+    expect(fmtHours(4), '4');
   });
 }

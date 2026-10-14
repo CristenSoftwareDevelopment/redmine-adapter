@@ -8,6 +8,7 @@ import '../state/app_state.dart';
 import '../services/theme_service.dart';
 import 'board/board_view.dart';
 import 'onboarding_screen.dart';
+import 'teams/teams_view.dart';
 import 'widgets/alerts_card.dart';
 import 'widgets/logs_card.dart';
 import 'widgets/monitoring_health_card.dart';
@@ -171,6 +172,14 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                             badge: failedQueries,
                             badgeColor: AppColors.orange,
                           ),
+                          if (appState.isAdmin)
+                            _navItem(
+                              _Page.teams,
+                              Icons.groups_outlined,
+                              Icons.groups,
+                              'Times e horas',
+                              dark,
+                            ),
                           if (pinned.isNotEmpty) _SectionLabel('Boards', dark: dark),
                           for (final q in pinned)
                             _NavItem(
@@ -279,6 +288,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                               children: const [
                                 _MonitoringTab(),
                                 _QueriesTab(),
+                                TeamsView(),
                                 _SettingsTab(),
                                 _LogsTab(),
                               ],
@@ -301,6 +311,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
   String get _pageTitle => switch (_page) {
         _Page.monitoring => 'Monitoração',
         _Page.queries => 'Consultas',
+        _Page.teams => 'Times e horas',
         _Page.settings => 'Configuração',
         _Page.logs => 'Logs',
       };
@@ -416,7 +427,7 @@ class _EnvironmentBadge extends StatelessWidget {
 // ─── Nav item ────────────────────────────────────────────────────────────────
 
 /// Pages that live in the main [IndexedStack]; order = stack index.
-enum _Page { monitoring, queries, settings, logs }
+enum _Page { monitoring, queries, teams, settings, logs }
 
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel(this.text, {required this.dark});
