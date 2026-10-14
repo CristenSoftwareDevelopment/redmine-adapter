@@ -124,7 +124,9 @@ class _QueryTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: dark ? const Color(0xFF2A2825) : AppColors.warmWhite,
         border: Border.all(
-          color: dark ? AppColors.darkBorder : AppColors.whisperBorder,
+          color: query.lastError != null
+              ? AppColors.orange.withValues(alpha: 0.5)
+              : (dark ? AppColors.darkBorder : AppColors.whisperBorder),
           width: 1,
         ),
         borderRadius: BorderRadius.circular(AppRadius.standard),
@@ -145,6 +147,10 @@ class _QueryTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
+                    if (query.lastError != null) ...[
+                      _ErrorBadge(query: query),
+                      const SizedBox(width: 4),
+                    ],
                     _StatusBadge(enabled: query.enabled),
                     const SizedBox(width: 4),
                     _AlertOnBadge(alertOn: query.alertOn),
@@ -313,6 +319,33 @@ class _StatusBadge extends StatelessWidget {
         enabled ? 'Ativa' : 'Pausada',
         style: AppText.badge().copyWith(
           color: enabled ? AppColors.green : AppColors.warmGray500,
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorBadge extends StatelessWidget {
+  const _ErrorBadge({required this.query});
+  final MonitoredQuery query;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Falhou em ${fmtDateTime(query.lastErrorAt)}\n${query.lastError}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: AppColors.orange.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 12, color: AppColors.orange),
+            const SizedBox(width: 4),
+            Text('Falhou', style: AppText.badge().copyWith(color: AppColors.orange)),
+          ],
         ),
       ),
     );

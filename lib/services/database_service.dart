@@ -518,7 +518,23 @@ class DatabaseService {
       {
         'last_count': lastCount,
         'last_checked_at': checkedAt.toIso8601String(),
+        'last_error': null,
+        'last_error_at': null,
       },
+      where: 'id = ?',
+      whereArgs: [queryId],
+    );
+  }
+
+  Future<void> setQueryError({
+    required int queryId,
+    required String message,
+    required DateTime at,
+  }) async {
+    final database = await db;
+    await database.update(
+      'queries',
+      {'last_error': message, 'last_error_at': at.toIso8601String()},
       where: 'id = ?',
       whereArgs: [queryId],
     );

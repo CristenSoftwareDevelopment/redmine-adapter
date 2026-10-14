@@ -213,9 +213,15 @@ class MonitorService {
 
       _onQueryUpdate();
     } catch (error) {
+      final message = '$error'.replaceFirst('Exception: ', '');
+      await databaseService.setQueryError(
+        queryId: queryId,
+        message: message,
+        at: DateTime.now(),
+      );
       await _log(
         level: 'error',
-        message: 'Falha na consulta: $error',
+        message: 'Falha na consulta: $message',
         queryName: query.name,
       );
       _onQueryUpdate();

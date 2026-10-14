@@ -29,6 +29,9 @@ class MonitoredQuery {
     this.lastCheckedAt,
     this.notificationTitleTemplate,
     this.notificationBodyTemplate,
+    this.pinned = false,
+    this.lastError,
+    this.lastErrorAt,
     List<int>? scheduleWeekdays,
     int? scheduleStartHour,
     int? scheduleEndHour,
@@ -50,6 +53,13 @@ class MonitoredQuery {
   /// Optional per-query notification templates. When set, override global settings.
   final String? notificationTitleTemplate;
   final String? notificationBodyTemplate;
+
+  /// Shown as a board in the sidebar.
+  final bool pinned;
+
+  /// Error of the last failed check; cleared on the next successful one.
+  final String? lastError;
+  final DateTime? lastErrorAt;
 
   /// Days of week on which monitoring runs (1=Mon … 7=Sun). Default: Mon–Fri.
   final List<int> scheduleWeekdays;
@@ -86,6 +96,9 @@ class MonitoredQuery {
     DateTime? lastCheckedAt,
     Object? notificationTitleTemplate = _sentinel,
     Object? notificationBodyTemplate = _sentinel,
+    bool? pinned,
+    Object? lastError = _sentinel,
+    Object? lastErrorAt = _sentinel,
     List<int>? scheduleWeekdays,
     int? scheduleStartHour,
     int? scheduleEndHour,
@@ -107,6 +120,9 @@ class MonitoredQuery {
       notificationBodyTemplate: notificationBodyTemplate == _sentinel
           ? this.notificationBodyTemplate
           : notificationBodyTemplate as String?,
+      pinned: pinned ?? this.pinned,
+      lastError: lastError == _sentinel ? this.lastError : lastError as String?,
+      lastErrorAt: lastErrorAt == _sentinel ? this.lastErrorAt : lastErrorAt as DateTime?,
       scheduleWeekdays: scheduleWeekdays ?? this.scheduleWeekdays,
       scheduleStartHour: scheduleStartHour ?? this.scheduleStartHour,
       scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
@@ -127,6 +143,9 @@ class MonitoredQuery {
       'last_checked_at': lastCheckedAt?.toIso8601String(),
       'notification_title_template': notificationTitleTemplate,
       'notification_body_template': notificationBodyTemplate,
+      'pinned': pinned ? 1 : 0,
+      'last_error': lastError,
+      'last_error_at': lastErrorAt?.toIso8601String(),
       'schedule_weekdays': scheduleWeekdays.join(','),
       'schedule_start_hour': scheduleStartHour,
       'schedule_end_hour': scheduleEndHour,
@@ -149,6 +168,11 @@ class MonitoredQuery {
           : DateTime.tryParse(map['last_checked_at'] as String),
       notificationTitleTemplate: map['notification_title_template'] as String?,
       notificationBodyTemplate: map['notification_body_template'] as String?,
+      pinned: (map['pinned'] as int? ?? 0) == 1,
+      lastError: map['last_error'] as String?,
+      lastErrorAt: map['last_error_at'] == null
+          ? null
+          : DateTime.tryParse(map['last_error_at'] as String),
       scheduleWeekdays: _parseWeekdays(map['schedule_weekdays'] as String?),
       scheduleStartHour: map['schedule_start_hour'] as int? ?? defaultScheduleStartHour,
       scheduleEndHour: map['schedule_end_hour'] as int? ?? defaultScheduleEndHour,

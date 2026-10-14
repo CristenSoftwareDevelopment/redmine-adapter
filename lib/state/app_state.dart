@@ -213,6 +213,8 @@ class AppState extends ChangeNotifier {
       name: '${query.name} (cópia)',
       lastCount: null,
       lastCheckedAt: null,
+      lastError: null,
+      lastErrorAt: null,
     );
     await addQuery(duplicate);
   }
@@ -402,15 +404,17 @@ class AppState extends ChangeNotifier {
           createdAt: DateTime.fromMillisecondsSinceEpoch(0),
         ),
       );
-      final status = latestLog.level;
+      final failed = query.lastError != null;
       return QueryHealth(
         queryId: query.id ?? -1,
         queryName: query.name,
         enabled: query.enabled,
         lastCheckedAt: query.lastCheckedAt,
         lastCount: query.lastCount,
-        lastStatus: status,
-        lastMessage: latestLog.id == null ? null : latestLog.message,
+        lastStatus: failed ? 'error' : latestLog.level,
+        lastMessage: failed
+            ? query.lastError
+            : (latestLog.id == null ? null : latestLog.message),
       );
     }).toList();
   }
