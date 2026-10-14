@@ -344,6 +344,12 @@ class AppState extends ChangeNotifier {
                 'scheduleEndHour': q.scheduleEndHour,
               })
           .toList(),
+      'teams': teams
+          .map((t) => {
+                'name': t.name,
+                'members': t.members.map((m) => m.toJson()).toList(),
+              })
+          .toList(),
     };
     return const JsonEncoder.withIndent('  ').convert(payload);
   }
@@ -424,6 +430,23 @@ class AppState extends ChangeNotifier {
         scheduleEndHour: entry['scheduleEndHour'] as int? ?? defaultScheduleEndHour,
       );
       await _databaseService.insertQuery(query);
+    }
+
+    // Backups before v3 have no teams: keep the current ones.
+    final teamsList = parsed['teams'];
+    if (teamsList is List) {
+      await _databaseService.clearTeams();
+      for (final entry in teamsList.whereType<Map>()) {
+        await _databaseService.saveTeam(
+          Team(
+            name: (entry['name'] ?? 'Time').toString(),
+            members: [
+              for (final m in (entry['members'] as List? ?? const []).whereType<Map>())
+                TeamMember.fromJson(Map<String, dynamic>.from(m)),
+            ],
+          ),
+        );
+      }
     }
 
     if (monitoring) {
