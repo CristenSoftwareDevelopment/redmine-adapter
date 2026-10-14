@@ -61,8 +61,10 @@ lib/
     board/                — board/list of a pinned query (columns saved in queries.board_statuses),
                             issue detail dialog (Markdown via flutter_markdown_plus)
     teams/                — teams (members from /projects/:id/memberships.json) + time report
-    widgets/              — per-page cards and the query form
-    ui_utils.dart         — fmtDateTime/fmtDate, openRedmineLink, LabelPill, UserAvatar
+    widgets/              — per-page content (alerts, queries + form, logs, settings)
+    components.dart       — layout kit: PageHeader, Panel, FiltersPanel, StatCard, ListRow,
+                            Tag, AppTabs, SegmentButtons, AppDialog… (see DESIGN.md)
+    ui_utils.dart         — fmtDateTime/fmtDate, searchKey, openRedmineLink, UserAvatar
 
 src/web_proxy.js          — Node CORS proxy; single endpoint POST /redmine-proxy/fetch
 ```
@@ -109,6 +111,13 @@ Placeholders for title/message: `{queryName}`, `{previousCount}`, `{currentCount
 ## Tests
 
 One test file: `test/widget_test.dart` — templates/resolve, `AlertRule` semantics and legacy migration, URL param handling, time-entry aggregation, plus a widget test of the query form. In widget tests all HTTP returns 400, which the form uses to exercise its manual-URL fallback. Run with `flutter test`.
+
+## Visual identity
+
+Colors come only from theme-aware tokens (`AppColors.accent(dark: dark)` …) in
+`lib/services/theme_service.dart`; screens compose `lib/ui/components.dart`. Both
+light and dark themes exist. Material texts are Portuguese (`flutter_localizations`,
+locale pt_BR). Guide: [DESIGN.md](DESIGN.md).
 
 ## Formatting
 
