@@ -3,9 +3,11 @@ import 'dart:collection';
 import 'package:flutter/services.dart';
 
 import '../models/alert_event.dart';
+import '../models/alert_rule.dart';
 import '../models/app_settings.dart';
 import '../models/monitored_query.dart';
 import 'database_service.dart';
+import 'notifications/notification_template_service.dart';
 import 'redmine_api_service.dart';
 
 typedef AlertCallback = void Function(AlertEvent alert);
@@ -22,6 +24,7 @@ class MonitorService {
 
   final DatabaseService databaseService;
   final RedmineApiService redmineApiService;
+  final _templateService = NotificationTemplateService();
   AlertCallback _onAlert;
   QueryUpdateCallback _onQueryUpdate;
 
@@ -173,25 +176,19 @@ class MonitorService {
       );
 
       if (previous != null && previous != currentCount) {
-        final diff = currentCount - previous;
-        final shouldAlert = switch (query.alertOn) {
-          'increase' => diff > 0,
-          'decrease' => diff < 0,
-          _ => true,
-        };
-
-        if (!shouldAlert) {
+        final rule = AlertRule.firstMatch(query.alertRules, previous, currentCount);
+        if (rule == null) {
           await _log(
             level: 'info',
             message:
-                'Alteração detectada ($previous -> $currentCount), mas não atende o critério de alerta configurado (${query.alertOn}).',
+                'Alteração detectada ($previous -> $currentCount), mas nenhuma regra de notificação foi atendida.',
             queryName: query.name,
           );
           _onQueryUpdate();
           return;
         }
 
-        final alert = AlertEvent(
+        final draft = AlertEvent(
           queryId: queryId,
           queryName: query.name,
           previousCount: previous,
@@ -199,12 +196,15 @@ class MonitorService {
           directUrl: RedmineApiService.absoluteUrl(settings.baseUrl, query.directUrl),
           createdAt: now,
         );
+        final (title, body) = _templateService.resolve(settings, rule, draft);
 
-        final persistedAlert = await databaseService.addAlert(alert);
+        final persistedAlert = await databaseService.addAlert(
+          draft.copyWith(title: title, body: body),
+        );
         await _log(
           level: 'alert',
           message:
-              'Alteração detectada: $previous -> $currentCount. Endpoint: ${result.uri}',
+              'Alteração detectada: $previous -> $currentCount (regra ${rule.label}). Endpoint: ${result.uri}',
           queryName: query.name,
         );
         await SystemSound.play(SystemSoundType.alert);

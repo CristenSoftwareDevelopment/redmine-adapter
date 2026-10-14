@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/alert_event.dart';
-import '../../services/notifications/notification_template_service.dart';
 import '../../state/app_state.dart';
 import '../../services/theme_service.dart';
 import '../ui_utils.dart';
@@ -46,12 +45,7 @@ class AlertsCard extends StatelessWidget {
                 style: AppText.captionLight(dark: dark),
               )
             else
-              ...state.alerts.map(
-                (alert) => _AlertTile(
-                  alert: alert,
-                  settings: state.settings,
-                ),
-              ),
+              ...state.alerts.map((alert) => _AlertTile(alert: alert)),
           ],
         ),
       ),
@@ -60,10 +54,9 @@ class AlertsCard extends StatelessWidget {
 }
 
 class _AlertTile extends StatelessWidget {
-  const _AlertTile({required this.alert, required this.settings});
+  const _AlertTile({required this.alert});
 
   final AlertEvent alert;
-  final dynamic settings;
 
   @override
   Widget build(BuildContext context) {
@@ -73,9 +66,7 @@ class _AlertTile extends StatelessWidget {
     final isIncrease = diff > 0;
     final isDecrease = diff < 0;
 
-    final templateService = NotificationTemplateService();
-    final title = templateService.render(settings.notificationTitleTemplate, alert);
-    final body = templateService.render(settings.notificationBodyTemplate, alert);
+    final (title, body) = state.alertText(alert);
 
     final diffColor = isIncrease
         ? AppColors.green

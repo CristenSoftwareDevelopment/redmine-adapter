@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:redmine_monitor_flutter/models/alert_event.dart';
+import 'package:redmine_monitor_flutter/models/alert_rule.dart';
+import 'package:redmine_monitor_flutter/models/app_settings.dart';
+import 'package:redmine_monitor_flutter/models/monitored_query.dart';
 import 'package:redmine_monitor_flutter/services/notifications/notification_template_service.dart';
 import 'package:redmine_monitor_flutter/services/redmine_api_service.dart';
 
@@ -34,5 +37,87 @@ void main() {
     );
     expect(uri.queryParametersAll['f[]'], ['status_id', 'assigned_to_id']);
     expect(uri.queryParameters['limit'], '1');
+  });
+
+  group('AlertRule', () {
+    test('eq fires when count lands on the value', () {
+      const rule = AlertRule(op: ruleEq, value: 1);
+      expect(rule.matches(2, 1), true);
+      expect(rule.matches(0, 1), true);
+      expect(rule.matches(2, 3), false);
+    });
+
+    test('lte/gte fire only when crossing the threshold', () {
+      const lte = AlertRule(op: ruleLte, value: 1);
+      expect(lte.matches(3, 1), true);
+      expect(lte.matches(1, 0), false);
+      expect(lte.matches(0, 2), false);
+      const gte = AlertRule(op: ruleGte, value: 5);
+      expect(gte.matches(4, 6), true);
+      expect(gte.matches(6, 7), false);
+    });
+
+    test('direction rules and missing value', () {
+      expect(const AlertRule(op: ruleIncrease).matches(1, 2), true);
+      expect(const AlertRule(op: ruleIncrease).matches(2, 1), false);
+      expect(const AlertRule(op: ruleDecrease).matches(2, 1), true);
+      expect(const AlertRule().matches(2, 1), true);
+      expect(const AlertRule(op: ruleEq).matches(2, 1), false);
+    });
+
+    test('first matching rule wins', () {
+      const rules = [
+        AlertRule(op: ruleEq, value: 1, titleTemplate: 'um'),
+        AlertRule(op: ruleDecrease, titleTemplate: 'caiu'),
+      ];
+      expect(AlertRule.firstMatch(rules, 2, 1)?.titleTemplate, 'um');
+      expect(AlertRule.firstMatch(rules, 3, 2)?.titleTemplate, 'caiu');
+      expect(AlertRule.firstMatch(rules, 1, 2), null);
+    });
+
+    test('legacy row becomes a single rule', () {
+      final query = MonitoredQuery.fromDbMap({
+        'id': 1,
+        'name': 'Fila',
+        'endpoint': '/issues.json',
+        'direct_url': '/issues',
+        'alert_on': 'increase',
+        'notification_title_template': 'T {queryName}',
+        'notification_body_template': '',
+      });
+      expect(query.alertRules.length, 1);
+      expect(query.alertRules.single.op, ruleIncrease);
+      expect(query.alertRules.single.titleTemplate, 'T {queryName}');
+      expect(query.alertRules.single.bodyTemplate, null);
+
+      final roundTrip = MonitoredQuery.fromDbMap({...query.toDbMap(), 'id': 1});
+      expect(roundTrip.alertRules.single.op, ruleIncrease);
+    });
+  });
+
+  test('resolve: rule template > increase/decrease template > generic', () {
+    final service = NotificationTemplateService();
+    final settings = AppSettings(
+      baseUrl: '',
+      apiKey: '',
+      notificationTitleTemplate: 'G {queryName}',
+      notificationBodyTemplate: 'GB',
+      notificationIncreaseTitleTemplate: 'UP {currentCount}',
+    );
+    AlertEvent alert(int prev, int curr) => AlertEvent(
+          queryId: 1,
+          queryName: 'Fila',
+          previousCount: prev,
+          currentCount: curr,
+          directUrl: '/issues',
+          createdAt: DateTime(2026),
+        );
+
+    expect(
+      service.resolve(settings, const AlertRule(titleTemplate: 'R {currentCount}'), alert(2, 1)),
+      ('R 1', 'GB'),
+    );
+    expect(service.resolve(settings, const AlertRule(), alert(1, 2)), ('UP 2', 'GB'));
+    expect(service.resolve(settings, null, alert(2, 1)), ('G Fila', 'GB'));
   });
 }

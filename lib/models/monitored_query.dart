@@ -1,10 +1,4 @@
-/// Controls when an alert is fired for a monitored query.
-/// - `any`: fire on any count change (default)
-/// - `increase`: fire only when count increases
-/// - `decrease`: fire only when count decreases
-const alertOnAny = 'any';
-const alertOnIncrease = 'increase';
-const alertOnDecrease = 'decrease';
+import 'alert_rule.dart';
 
 /// Default schedule: Mon–Fri (weekdays 1–5), 08:00–18:00.
 const defaultScheduleWeekdays = [1, 2, 3, 4, 5];
@@ -24,11 +18,9 @@ class MonitoredQuery {
     this.countPath = 'total_count',
     this.pollSeconds = defaultPollSeconds,
     this.enabled = true,
-    this.alertOn = alertOnAny,
+    this.alertRules = const [AlertRule()],
     this.lastCount,
     this.lastCheckedAt,
-    this.notificationTitleTemplate,
-    this.notificationBodyTemplate,
     this.pinned = false,
     this.lastError,
     this.lastErrorAt,
@@ -46,13 +38,11 @@ class MonitoredQuery {
   final String countPath;
   final int pollSeconds;
   final bool enabled;
-  final String alertOn;
+
+  /// Notification conditions, evaluated in order when the count changes.
+  final List<AlertRule> alertRules;
   final int? lastCount;
   final DateTime? lastCheckedAt;
-
-  /// Optional per-query notification templates. When set, override global settings.
-  final String? notificationTitleTemplate;
-  final String? notificationBodyTemplate;
 
   /// Shown as a board in the sidebar.
   final bool pinned;
@@ -91,11 +81,9 @@ class MonitoredQuery {
     String? countPath,
     int? pollSeconds,
     bool? enabled,
-    String? alertOn,
+    List<AlertRule>? alertRules,
     int? lastCount,
     DateTime? lastCheckedAt,
-    Object? notificationTitleTemplate = _sentinel,
-    Object? notificationBodyTemplate = _sentinel,
     bool? pinned,
     Object? lastError = _sentinel,
     Object? lastErrorAt = _sentinel,
@@ -111,15 +99,9 @@ class MonitoredQuery {
       countPath: countPath ?? this.countPath,
       pollSeconds: pollSeconds ?? this.pollSeconds,
       enabled: enabled ?? this.enabled,
-      alertOn: alertOn ?? this.alertOn,
+      alertRules: alertRules ?? this.alertRules,
       lastCount: lastCount ?? this.lastCount,
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
-      notificationTitleTemplate: notificationTitleTemplate == _sentinel
-          ? this.notificationTitleTemplate
-          : notificationTitleTemplate as String?,
-      notificationBodyTemplate: notificationBodyTemplate == _sentinel
-          ? this.notificationBodyTemplate
-          : notificationBodyTemplate as String?,
       pinned: pinned ?? this.pinned,
       lastError: lastError == _sentinel ? this.lastError : lastError as String?,
       lastErrorAt: lastErrorAt == _sentinel ? this.lastErrorAt : lastErrorAt as DateTime?,
@@ -138,11 +120,9 @@ class MonitoredQuery {
       'count_path': countPath,
       'poll_seconds': pollSeconds,
       'enabled': enabled ? 1 : 0,
-      'alert_on': alertOn,
+      'alert_rules': AlertRule.listToJson(alertRules),
       'last_count': lastCount,
       'last_checked_at': lastCheckedAt?.toIso8601String(),
-      'notification_title_template': notificationTitleTemplate,
-      'notification_body_template': notificationBodyTemplate,
       'pinned': pinned ? 1 : 0,
       'last_error': lastError,
       'last_error_at': lastErrorAt?.toIso8601String(),
@@ -161,13 +141,18 @@ class MonitoredQuery {
       countPath: map['count_path'] as String? ?? 'total_count',
       pollSeconds: map['poll_seconds'] as int? ?? defaultPollSeconds,
       enabled: (map['enabled'] as int? ?? 1) == 1,
-      alertOn: map['alert_on'] as String? ?? alertOnAny,
+      alertRules: AlertRule.listFromJson(map['alert_rules'] as String?) ??
+          [
+            AlertRule.fromLegacy(
+              map['alert_on'] as String?,
+              map['notification_title_template'] as String?,
+              map['notification_body_template'] as String?,
+            ),
+          ],
       lastCount: map['last_count'] as int?,
       lastCheckedAt: map['last_checked_at'] == null
           ? null
           : DateTime.tryParse(map['last_checked_at'] as String),
-      notificationTitleTemplate: map['notification_title_template'] as String?,
-      notificationBodyTemplate: map['notification_body_template'] as String?,
       pinned: (map['pinned'] as int? ?? 0) == 1,
       lastError: map['last_error'] as String?,
       lastErrorAt: map['last_error_at'] == null

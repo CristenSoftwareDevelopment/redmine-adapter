@@ -8,6 +8,8 @@ class AlertEvent {
     required this.directUrl,
     required this.createdAt,
     this.isRead = false,
+    this.title,
+    this.body,
   });
 
   final int? id;
@@ -19,9 +21,14 @@ class AlertEvent {
   final DateTime createdAt;
   final bool isRead;
 
+  /// Rendered notification text, stored so the OS notification and the
+  /// in-app list always show the same thing. Null for pre-rules alerts.
+  final String? title;
+  final String? body;
+
   int get diff => currentCount - previousCount;
 
-  AlertEvent copyWith({bool? isRead}) {
+  AlertEvent copyWith({bool? isRead, String? title, String? body}) {
     return AlertEvent(
       id: id,
       queryId: queryId,
@@ -31,6 +38,8 @@ class AlertEvent {
       directUrl: directUrl,
       createdAt: createdAt,
       isRead: isRead ?? this.isRead,
+      title: title ?? this.title,
+      body: body ?? this.body,
     );
   }
 
@@ -44,6 +53,8 @@ class AlertEvent {
       'direct_url': directUrl,
       'created_at': createdAt.toIso8601String(),
       'is_read': isRead ? 1 : 0,
+      'title': title,
+      'body': body,
     };
   }
 
@@ -57,6 +68,8 @@ class AlertEvent {
       directUrl: map['direct_url'] as String,
       createdAt: DateTime.parse(map['created_at'] as String),
       isRead: (map['is_read'] as int? ?? 0) == 1,
+      title: map['title'] as String?,
+      body: map['body'] as String?,
     );
   }
 }

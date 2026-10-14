@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../models/alert_event.dart';
+import '../models/alert_rule.dart';
 import '../models/app_settings.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
@@ -285,7 +286,7 @@ class AppState extends ChangeNotifier {
 
   String exportBackupJson() {
     final payload = {
-      'version': 2,
+      'version': 3,
       'settings': {
         'baseUrl': settings.baseUrl,
         'apiKey': settings.apiKey,
@@ -306,9 +307,8 @@ class AppState extends ChangeNotifier {
                 'countPath': q.countPath,
                 'pollSeconds': q.pollSeconds,
                 'enabled': q.enabled,
-                'alertOn': q.alertOn,
-                'notificationTitleTemplate': q.notificationTitleTemplate,
-                'notificationBodyTemplate': q.notificationBodyTemplate,
+                'alertRules': q.alertRules.map((r) => r.toJson()).toList(),
+                'pinned': q.pinned,
                 'scheduleWeekdays': q.scheduleWeekdays,
                 'scheduleStartHour': q.scheduleStartHour,
                 'scheduleEndHour': q.scheduleEndHour,
@@ -329,7 +329,7 @@ class AppState extends ChangeNotifier {
     }
 
     final version = parsed['version'] as int? ?? 1;
-    if (version < 1 || version > 2) {
+    if (version < 1 || version > 3) {
       throw FormatException('Versão de backup não suportada: $version');
     }
 
@@ -377,9 +377,18 @@ class AppState extends ChangeNotifier {
         countPath: (entry['countPath'] ?? 'total_count').toString(),
         pollSeconds: int.tryParse('${entry['pollSeconds']}') ?? defaultPollSeconds,
         enabled: (entry['enabled'] ?? true) == true,
-        alertOn: (entry['alertOn'] ?? alertOnAny).toString(),
-        notificationTitleTemplate: entry['notificationTitleTemplate'] as String?,
-        notificationBodyTemplate: entry['notificationBodyTemplate'] as String?,
+        alertRules: entry['alertRules'] is List
+            ? (entry['alertRules'] as List)
+                .map((r) => AlertRule.fromJson(Map<String, dynamic>.from(r as Map)))
+                .toList()
+            : [
+                AlertRule.fromLegacy(
+                  entry['alertOn'] as String?,
+                  entry['notificationTitleTemplate'] as String?,
+                  entry['notificationBodyTemplate'] as String?,
+                ),
+              ],
+        pinned: entry['pinned'] == true,
         scheduleWeekdays: scheduleWeekdays,
         scheduleStartHour: entry['scheduleStartHour'] as int? ?? defaultScheduleStartHour,
         scheduleEndHour: entry['scheduleEndHour'] as int? ?? defaultScheduleEndHour,
@@ -453,48 +462,15 @@ class AppState extends ChangeNotifier {
     unawaited(refreshData());
   }
 
+  /// Title/body exactly as shown in the OS notification. Alerts created
+  /// before rules existed have no stored text and are rendered with globals.
+  (String, String) alertText(AlertEvent alert) => alert.title != null
+      ? (alert.title!, alert.body ?? '')
+      : _templateService.resolve(settings, null, alert);
+
   Future<void> _notify(AlertEvent alert) async {
-    // Resolve template: per-query → per-alert-type → global fallback.
-    final query = queries.where((q) => q.id == alert.queryId).firstOrNull;
-
-    String titleTemplate;
-    String bodyTemplate;
-
-    if (query?.notificationTitleTemplate != null &&
-        query!.notificationTitleTemplate!.isNotEmpty) {
-      titleTemplate = query.notificationTitleTemplate!;
-      bodyTemplate =
-          query.notificationBodyTemplate?.isNotEmpty == true
-              ? query.notificationBodyTemplate!
-              : settings.notificationBodyTemplate;
-    } else if (alert.diff > 0 &&
-        settings.notificationIncreaseTitleTemplate != null &&
-        settings.notificationIncreaseTitleTemplate!.isNotEmpty) {
-      titleTemplate = settings.notificationIncreaseTitleTemplate!;
-      bodyTemplate =
-          settings.notificationIncreaseBodyTemplate?.isNotEmpty == true
-              ? settings.notificationIncreaseBodyTemplate!
-              : settings.notificationBodyTemplate;
-    } else if (alert.diff < 0 &&
-        settings.notificationDecreaseTitleTemplate != null &&
-        settings.notificationDecreaseTitleTemplate!.isNotEmpty) {
-      titleTemplate = settings.notificationDecreaseTitleTemplate!;
-      bodyTemplate =
-          settings.notificationDecreaseBodyTemplate?.isNotEmpty == true
-              ? settings.notificationDecreaseBodyTemplate!
-              : settings.notificationBodyTemplate;
-    } else {
-      titleTemplate = settings.notificationTitleTemplate;
-      bodyTemplate = settings.notificationBodyTemplate;
-    }
-
-    final title = _templateService.render(titleTemplate, alert);
-    final body = _templateService.render(bodyTemplate, alert);
-    await _alertNotifier.showAlert(
-      alert: alert,
-      title: title,
-      body: body,
-    );
+    final (title, body) = alertText(alert);
+    await _alertNotifier.showAlert(alert: alert, title: title, body: body);
   }
 
   @override

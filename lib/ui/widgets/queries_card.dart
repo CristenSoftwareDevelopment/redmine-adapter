@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/alert_rule.dart';
 import '../../models/monitored_query.dart';
 import '../../state/app_state.dart';
 import '../../services/theme_service.dart';
@@ -153,7 +154,7 @@ class _QueryTile extends StatelessWidget {
                     ],
                     _StatusBadge(enabled: query.enabled),
                     const SizedBox(width: 4),
-                    _AlertOnBadge(alertOn: query.alertOn),
+                    _RulesBadge(rules: query.alertRules),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -352,24 +353,36 @@ class _ErrorBadge extends StatelessWidget {
   }
 }
 
-class _AlertOnBadge extends StatelessWidget {
-  const _AlertOnBadge({required this.alertOn});
-  final String alertOn;
+class _RulesBadge extends StatelessWidget {
+  const _RulesBadge({required this.rules});
+  final List<AlertRule> rules;
 
   @override
   Widget build(BuildContext context) {
-    final (label, color) = switch (alertOn) {
-      'increase' => ('↑ Aumento', AppColors.green),
-      'decrease' => ('↓ Diminuição', AppColors.orange),
-      _ => ('↕ Qualquer', AppColors.notionBlue),
+    final first = rules.firstOrNull;
+    final color = switch (first?.op) {
+      null => AppColors.warmGray500,
+      ruleIncrease => AppColors.green,
+      ruleDecrease => AppColors.orange,
+      _ => AppColors.notionBlue,
     };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
+    final label = first == null
+        ? 'Sem regras'
+        : rules.length > 1
+            ? '${first.label} +${rules.length - 1}'
+            : first.label;
+    return Tooltip(
+      message: rules.isEmpty
+          ? 'Nenhuma regra: esta consulta nunca notifica.'
+          : rules.map((r) => r.label).join('\n'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+        child: Text(label, style: AppText.badge().copyWith(color: color)),
       ),
-      child: Text(label, style: AppText.badge().copyWith(color: color)),
     );
   }
 }

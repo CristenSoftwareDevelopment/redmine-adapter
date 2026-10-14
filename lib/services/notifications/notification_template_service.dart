@@ -1,6 +1,37 @@
 import '../../models/alert_event.dart';
+import '../../models/alert_rule.dart';
+import '../../models/app_settings.dart';
 
 class NotificationTemplateService {
+  /// Single source of the notification text. Each field falls back
+  /// rule template → global increase/decrease template → global generic.
+  (String, String) resolve(AppSettings settings, AlertRule? rule, AlertEvent alert) {
+    String pick(String? a, String? b, String fallback) =>
+        a?.isNotEmpty == true ? a! : (b?.isNotEmpty == true ? b! : fallback);
+
+    final increase = alert.diff > 0;
+    final decrease = alert.diff < 0;
+    final title = pick(
+      rule?.titleTemplate,
+      increase
+          ? settings.notificationIncreaseTitleTemplate
+          : decrease
+              ? settings.notificationDecreaseTitleTemplate
+              : null,
+      settings.notificationTitleTemplate,
+    );
+    final body = pick(
+      rule?.bodyTemplate,
+      increase
+          ? settings.notificationIncreaseBodyTemplate
+          : decrease
+              ? settings.notificationDecreaseBodyTemplate
+              : null,
+      settings.notificationBodyTemplate,
+    );
+    return (render(title, alert), render(body, alert));
+  }
+
   String render(String template, AlertEvent alert) {
     final diff = alert.diff;
     final newCount = diff > 0 ? diff : 0;

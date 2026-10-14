@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../models/alert_event.dart';
 import '../state/app_state.dart';
 import '../services/theme_service.dart';
 import 'onboarding_screen.dart';
@@ -82,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     return Consumer<AppState>(
       builder: (context, appState, _) {
-        _showAlertSnackIfNeeded(context, appState.lastAlert);
+        _showAlertSnackIfNeeded(context, appState);
 
         if (appState.loading) {
           return const Scaffold(
@@ -242,20 +241,17 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showAlertSnackIfNeeded(BuildContext context, AlertEvent? alert) {
+  void _showAlertSnackIfNeeded(BuildContext context, AppState appState) {
+    final alert = appState.lastAlert;
     if (alert == null) return;
     final key = '${alert.queryId}-${alert.createdAt.toIso8601String()}';
     if (key == _lastAlertKey) return;
     _lastAlertKey = key;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final diffPrefix = alert.diff > 0 ? '+' : '';
+      final (title, body) = appState.alertText(alert);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${alert.queryName}: ${alert.previousCount} → ${alert.currentCount} ($diffPrefix${alert.diff})',
-          ),
-        ),
+        SnackBar(content: Text('$title\n$body')),
       );
     });
   }

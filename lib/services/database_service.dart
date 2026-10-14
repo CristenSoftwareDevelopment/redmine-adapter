@@ -553,16 +553,7 @@ class DatabaseService {
   Future<AlertEvent> addAlert(AlertEvent alert) async {
     final database = await db;
     final id = await database.insert('alerts', alert.toDbMap());
-    return AlertEvent(
-      id: id,
-      queryId: alert.queryId,
-      queryName: alert.queryName,
-      previousCount: alert.previousCount,
-      currentCount: alert.currentCount,
-      directUrl: alert.directUrl,
-      createdAt: alert.createdAt,
-      isRead: alert.isRead,
-    );
+    return AlertEvent.fromDbMap({...alert.toDbMap(), 'id': id});
   }
 
   Future<void> markAlertRead(int id) async {

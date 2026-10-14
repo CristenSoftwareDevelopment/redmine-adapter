@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/alert_rule.dart';
 import '../../models/monitored_query.dart';
 import '../../services/theme_service.dart';
 
@@ -21,12 +22,9 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
   late final TextEditingController _queryUrl;
   late final TextEditingController _countPath;
   late final TextEditingController _pollSeconds;
-  late final TextEditingController _customTitle;
-  late final TextEditingController _customBody;
+  late final List<_RuleDraft> _rules;
   bool _enabled = true;
-  String _alertOn = alertOnAny;
   bool _showAdvanced = false;
-  bool _showCustomTemplate = false;
   late List<int> _scheduleWeekdays;
   late int _scheduleStartHour;
   late int _scheduleEndHour;
@@ -43,16 +41,11 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     _pollSeconds = TextEditingController(
       text: '${item?.pollSeconds ?? defaultPollSeconds}',
     );
-    _customTitle = TextEditingController(text: item?.notificationTitleTemplate ?? '');
-    _customBody = TextEditingController(text: item?.notificationBodyTemplate ?? '');
+    _rules = (item?.alertRules ?? const [AlertRule()]).map(_RuleDraft.new).toList();
     _enabled = item?.enabled ?? true;
-    _alertOn = item?.alertOn ?? alertOnAny;
     _scheduleWeekdays = List<int>.from(item?.scheduleWeekdays ?? defaultScheduleWeekdays);
     _scheduleStartHour = item?.scheduleStartHour ?? defaultScheduleStartHour;
     _scheduleEndHour = item?.scheduleEndHour ?? defaultScheduleEndHour;
-    _showCustomTemplate =
-        (item?.notificationTitleTemplate?.isNotEmpty ?? false) ||
-            (item?.notificationBodyTemplate?.isNotEmpty ?? false);
   }
 
   @override
@@ -61,8 +54,9 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     _queryUrl.dispose();
     _countPath.dispose();
     _pollSeconds.dispose();
-    _customTitle.dispose();
-    _customBody.dispose();
+    for (final rule in _rules) {
+      rule.dispose();
+    }
     super.dispose();
   }
 
@@ -189,17 +183,6 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: Sp.s12),
-                      DropdownButtonFormField<String>(
-                        initialValue: _alertOn,
-                        decoration: const InputDecoration(labelText: 'Notificar quando'),
-                        items: const [
-                          DropdownMenuItem(value: alertOnAny, child: Text('Qualquer mudança')),
-                          DropdownMenuItem(value: alertOnIncrease, child: Text('Somente aumento')),
-                          DropdownMenuItem(value: alertOnDecrease, child: Text('Somente diminuição')),
-                        ],
-                        onChanged: (value) => setState(() => _alertOn = value ?? alertOnAny),
-                      ),
                       const SizedBox(height: Sp.s16),
 
                       // Consulta ativa custom switch
@@ -260,62 +243,7 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
                         height: Sp.s24,
                       ),
 
-                      // Template personalizado por consulta
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppColors.notionBlue,
-                            padding: EdgeInsets.zero,
-                          ),
-                          onPressed: () =>
-                              setState(() => _showCustomTemplate = !_showCustomTemplate),
-                          icon: Icon(
-                            _showCustomTemplate ? Icons.expand_less : Icons.expand_more,
-                            size: 18,
-                          ),
-                          label: const Text('Template de notificação personalizado (opcional)'),
-                        ),
-                      ),
-
-                      if (_showCustomTemplate) ...[
-                        const SizedBox(height: Sp.s4),
-                        Text(
-                          'Sobrescreve os templates globais apenas para está consulta.',
-                          style: AppText.captionLight(dark: dark),
-                        ),
-                        const SizedBox(height: Sp.s12),
-                        TextFormField(
-                          controller: _customTitle,
-                          decoration: const InputDecoration(
-                            labelText: 'Titulo personalizado',
-                            hintText: 'Deixe vazio para usar o template global',
-                          ),
-                        ),
-                        const SizedBox(height: Sp.s12),
-                        TextFormField(
-                          controller: _customBody,
-                          maxLines: 5,
-                          decoration: const InputDecoration(
-                            labelText: 'Corpo personalizado',
-                            hintText: 'Deixe vazio para usar o template global',
-                          ),
-                        ),
-                        const SizedBox(height: Sp.s12),
-                        const Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            Chip(label: Text('{queryName}')),
-                            Chip(label: Text('{previousCount}')),
-                            Chip(label: Text('{currentCount}')),
-                            Chip(label: Text('{diff}')),
-                            Chip(label: Text('{newCount}')),
-                            Chip(label: Text('{time}')),
-                            Chip(label: Text('{url}')),
-                          ],
-                        ),
-                      ],
+                      _buildRules(dark),
                     ],
                   ),
                 ),
@@ -346,14 +274,182 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     );
   }
 
+  Widget _buildRules(bool dark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.notifications_active_outlined, size: 15, color: AppColors.blue),
+            const SizedBox(width: 6),
+            Text(
+              'REGRAS DE NOTIFICAÇÃO',
+              style: AppText.caption(dark: dark).copyWith(
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Sp.s4),
+        Text(
+          'Avaliadas quando a contagem muda. A primeira regra atendida dispara a notificação — arraste para reordenar.',
+          style: AppText.microLabel(dark: dark),
+        ),
+        const SizedBox(height: Sp.s12),
+        ReorderableListView(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          buildDefaultDragHandles: false,
+          onReorder: (from, to) => setState(() {
+            if (to > from) to--;
+            _rules.insert(to, _rules.removeAt(from));
+          }),
+          children: [
+            for (var i = 0; i < _rules.length; i++) _buildRuleTile(i, dark),
+          ],
+        ),
+        if (_rules.isEmpty)
+          Text(
+            'Sem regras: esta consulta nunca vai notificar.',
+            style: AppText.microLabel(dark: dark).copyWith(color: AppColors.orange),
+          ),
+        TextButton.icon(
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.notionBlue,
+            padding: EdgeInsets.zero,
+          ),
+          onPressed: () => setState(() => _rules.add(_RuleDraft(const AlertRule()))),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Adicionar regra'),
+        ),
+        if (_rules.any((r) => r.expanded))
+          const Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              Chip(label: Text('{queryName}')),
+              Chip(label: Text('{previousCount}')),
+              Chip(label: Text('{currentCount}')),
+              Chip(label: Text('{diff}')),
+              Chip(label: Text('{newCount}')),
+              Chip(label: Text('{time}')),
+              Chip(label: Text('{url}')),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRuleTile(int index, bool dark) {
+    final rule = _rules[index];
+    final hasCustomText = rule.title.text.trim().isNotEmpty || rule.body.text.trim().isNotEmpty;
+    return Container(
+      key: ObjectKey(rule),
+      margin: const EdgeInsets.only(bottom: Sp.s8),
+      padding: const EdgeInsets.fromLTRB(Sp.s4, Sp.s8, Sp.s4, Sp.s8),
+      decoration: BoxDecoration(
+        color: dark ? AppColors.darkSurface : AppColors.warmWhite,
+        border: Border.all(color: AppColors.border(dark: dark)),
+        borderRadius: BorderRadius.circular(AppRadius.standard),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              ReorderableDragStartListener(
+                index: index,
+                child: const MouseRegion(
+                  cursor: SystemMouseCursors.grab,
+                  child: Padding(
+                    padding: EdgeInsets.all(Sp.s4),
+                    child: Icon(Icons.drag_indicator, size: 18, color: AppColors.warmGray500),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: rule.op,
+                  isDense: true,
+                  decoration: const InputDecoration(isDense: true),
+                  items: [
+                    for (final e in alertRuleOps.entries)
+                      DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  ],
+                  onChanged: (v) => setState(() => rule.op = v ?? ruleAny),
+                ),
+              ),
+              if (AlertRule(op: rule.op).needsValue) ...[
+                const SizedBox(width: Sp.s8),
+                SizedBox(
+                  width: 72,
+                  child: TextFormField(
+                    controller: rule.value,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(isDense: true, hintText: 'N'),
+                    validator: (v) {
+                      final n = int.tryParse(v?.trim() ?? '');
+                      return n == null || n < 0 ? 'Nº' : null;
+                    },
+                  ),
+                ),
+              ],
+              IconButton(
+                tooltip: 'Mensagem desta regra',
+                onPressed: () => setState(() => rule.expanded = !rule.expanded),
+                icon: Icon(
+                  rule.expanded ? Icons.expand_less : Icons.edit_note,
+                  size: 20,
+                  color: hasCustomText ? AppColors.notionBlue : AppColors.warmGray500,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remover regra',
+                onPressed: () => setState(() {
+                  final removed = _rules.removeAt(index);
+                  // Fields still reference the controllers until this frame ends.
+                  WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
+                }),
+                icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.warmGray500),
+              ),
+            ],
+          ),
+          if (rule.expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Sp.s32, Sp.s8, Sp.s8, 0),
+              child: Column(
+                children: [
+                  TextFormField(
+                    controller: rule.title,
+                    decoration: const InputDecoration(
+                      labelText: 'Título',
+                      hintText: 'Vazio = template global',
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: Sp.s8),
+                  TextFormField(
+                    controller: rule.body,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Corpo',
+                      hintText: 'Vazio = template global',
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
 
     final resolved = _resolveUrls(_queryUrl.text.trim());
     if (resolved == null) return;
-
-    final customTitleRaw = _customTitle.text.trim();
-    final customBodyRaw = _customBody.text.trim();
 
     final result = MonitoredQuery(
       id: widget.initial?.id,
@@ -363,11 +459,9 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
       countPath: _countPath.text.trim(),
       pollSeconds: int.parse(_pollSeconds.text.trim()),
       enabled: _enabled,
-      alertOn: _alertOn,
+      alertRules: _rules.map((r) => r.toRule()).toList(),
       lastCount: widget.initial?.lastCount,
       lastCheckedAt: widget.initial?.lastCheckedAt,
-      notificationTitleTemplate: customTitleRaw.isEmpty ? null : customTitleRaw,
-      notificationBodyTemplate: customBodyRaw.isEmpty ? null : customBodyRaw,
       scheduleWeekdays: _scheduleWeekdays,
       scheduleStartHour: _scheduleStartHour,
       scheduleEndHour: _scheduleEndHour,
@@ -405,6 +499,38 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
   String _toPathAndQuery(Uri uri) {
     final query = uri.query;
     return query.isEmpty ? uri.path : '${uri.path}?$query';
+  }
+}
+
+/// Editable state of one [AlertRule] in the form.
+class _RuleDraft {
+  _RuleDraft(AlertRule rule)
+      : op = rule.op,
+        value = TextEditingController(text: rule.value?.toString() ?? ''),
+        title = TextEditingController(text: rule.titleTemplate ?? ''),
+        body = TextEditingController(text: rule.bodyTemplate ?? ''),
+        expanded = rule.titleTemplate != null || rule.bodyTemplate != null;
+
+  String op;
+  final TextEditingController value;
+  final TextEditingController title;
+  final TextEditingController body;
+  bool expanded;
+
+  AlertRule toRule() {
+    String? text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+    return AlertRule(
+      op: op,
+      value: AlertRule(op: op).needsValue ? int.tryParse(value.text.trim()) : null,
+      titleTemplate: text(title),
+      bodyTemplate: text(body),
+    );
+  }
+
+  void dispose() {
+    value.dispose();
+    title.dispose();
+    body.dispose();
   }
 }
 
