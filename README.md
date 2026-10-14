@@ -16,7 +16,7 @@ Web e mobile sao suportes secundarios.
 - Fixa consultas no menu como board (estilo Jira) ou lista; arrastar o card muda o status
   no Redmine. As colunas (status) visiveis sao escolhidas por board e ficam salvas.
 - Abre a tarefa num modal com a descricao e o historico renderizados em Markdown.
-- Times e horas: os membros vem dos projetos do Redmine (nao precisa ser admin); horas por
+- Tempo gasto (times): os membros vem dos projetos do Redmine (nao precisa ser admin); horas por
   pessoa e dia, detalhadas por tarefa ou por tipo de atividade. So aparecem as horas que o seu
   papel pode ver (permissao "Ver tempo gasto").
 - Persiste dados em SQLite (`settings`, `queries`, `alerts`, `monitor_logs`, `teams`).

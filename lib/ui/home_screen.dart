@@ -143,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                               count: unreadAlerts),
                           _navItem(_Page.queries, Icons.search, 'Consultas', dark,
                               count: failedQueries, countTone: TagTone.red),
-                          _navItem(_Page.teams, Icons.groups_outlined, 'Times e horas', dark),
+                          _navItem(_Page.teams, Icons.schedule, 'Tempo gasto', dark),
                           if (pinned.isNotEmpty) _SectionLabel('Boards', dark: dark),
                           for (final q in pinned)
                             _NavItem(
@@ -256,7 +256,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
   String get _pageTitle => switch (_page) {
         _Page.monitoring => 'Monitoração',
         _Page.queries => 'Consultas',
-        _Page.teams => 'Times e horas',
+        _Page.teams => 'Tempo gasto',
         _Page.settings => 'Configuração',
         _Page.logs => 'Logs',
       };

@@ -34,7 +34,7 @@ class _TeamsViewState extends State<TeamsView> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
-          title: 'Times e horas',
+          title: 'Tempo gasto',
           subtitle: 'Acompanhe as horas do time e explore os lançamentos de cada pessoa.',
           actions: [
             FilledButton.icon(
