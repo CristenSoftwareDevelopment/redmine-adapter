@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart' show databaseFactory;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' show databaseFactoryFfi, sqfliteFfiInit;
@@ -138,6 +139,10 @@ class _RedmineMonitorAppState extends State<RedmineMonitorApp> with WindowListen
     return MaterialApp(
       title: 'Redmine Monitor',
       debugShowCheckedModeBanner: false,
+      // Material texts (date pickers, tooltips…) in Portuguese.
+      locale: const Locale('pt', 'BR'),
+      supportedLocales: const [Locale('pt', 'BR')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       themeMode: _resolveThemeMode(appState.settings.themeMode),
       theme: buildAppTheme(dark: false),
       darkTheme: buildAppTheme(dark: true),

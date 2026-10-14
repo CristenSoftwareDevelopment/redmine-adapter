@@ -3,9 +3,11 @@ import 'dart:collection';
 import 'package:flutter/services.dart';
 
 import '../models/alert_event.dart';
+import '../models/alert_rule.dart';
 import '../models/app_settings.dart';
 import '../models/monitored_query.dart';
 import 'database_service.dart';
+import 'notifications/notification_template_service.dart';
 import 'redmine_api_service.dart';
 
 typedef AlertCallback = void Function(AlertEvent alert);
@@ -22,6 +24,7 @@ class MonitorService {
 
   final DatabaseService databaseService;
   final RedmineApiService redmineApiService;
+  final _templateService = NotificationTemplateService();
   AlertCallback _onAlert;
   QueryUpdateCallback _onQueryUpdate;
 
@@ -173,38 +176,35 @@ class MonitorService {
       );
 
       if (previous != null && previous != currentCount) {
-        final diff = currentCount - previous;
-        final shouldAlert = switch (query.alertOn) {
-          'increase' => diff > 0,
-          'decrease' => diff < 0,
-          _ => true,
-        };
-
-        if (!shouldAlert) {
+        final rule = AlertRule.firstMatch(query.alertRules, previous, currentCount);
+        if (rule == null) {
           await _log(
             level: 'info',
             message:
-                'Alteração detectada ($previous -> $currentCount), mas não atende o critério de alerta configurado (${query.alertOn}).',
+                'Alteração detectada ($previous -> $currentCount), mas nenhuma regra de notificação foi atendida.',
             queryName: query.name,
           );
           _onQueryUpdate();
           return;
         }
 
-        final alert = AlertEvent(
+        final draft = AlertEvent(
           queryId: queryId,
           queryName: query.name,
           previousCount: previous,
           currentCount: currentCount,
-          directUrl: _buildDirectUrl(settings.baseUrl, query.directUrl),
+          directUrl: RedmineApiService.absoluteUrl(settings.baseUrl, query.directUrl),
           createdAt: now,
         );
+        final (title, body) = _templateService.resolve(settings, rule, draft);
 
-        final persistedAlert = await databaseService.addAlert(alert);
+        final persistedAlert = await databaseService.addAlert(
+          draft.copyWith(title: title, body: body),
+        );
         await _log(
           level: 'alert',
           message:
-              'Alteração detectada: $previous -> $currentCount. Endpoint: ${result.uri}',
+              'Alteração detectada: $previous -> $currentCount (regra ${rule.label}). Endpoint: ${result.uri}',
           queryName: query.name,
         );
         await SystemSound.play(SystemSoundType.alert);
@@ -213,9 +213,15 @@ class MonitorService {
 
       _onQueryUpdate();
     } catch (error) {
+      final message = '$error'.replaceFirst('Exception: ', '');
+      await databaseService.setQueryError(
+        queryId: queryId,
+        message: message,
+        at: DateTime.now(),
+      );
       await _log(
         level: 'error',
-        message: 'Falha na consulta: $error',
+        message: 'Falha na consulta: $message',
         queryName: query.name,
       );
       _onQueryUpdate();
@@ -243,16 +249,5 @@ class MonitorService {
   String _weekdaysLabel(List<int> days) {
     if (days.isEmpty) return '—';
     return days.map((d) => _dayNames[(d - 1).clamp(0, 6)]).join(', ');
-  }
-
-  String _buildDirectUrl(String baseUrl, String directUrl) {
-    if (directUrl.startsWith('http://') || directUrl.startsWith('https://')) {
-      return directUrl;
-    }
-    final normalizedBase = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-    final normalizedPath = directUrl.startsWith('/') ? directUrl : '/$directUrl';
-    return '$normalizedBase$normalizedPath';
   }
 }

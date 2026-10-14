@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import '../models/alert_event.dart';
 import '../models/app_settings.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
+import '../models/team.dart';
 
 class DatabaseService {
   DatabaseService._();
@@ -224,6 +226,24 @@ class DatabaseService {
           column: 'is_read',
           definition: 'INTEGER NOT NULL DEFAULT 0',
         );
+        for (final (table, column, definition) in const [
+          ('queries', 'pinned', 'INTEGER NOT NULL DEFAULT 0'),
+          ('queries', 'board_statuses', 'TEXT'),
+          ('queries', 'alert_rules', 'TEXT'),
+          ('queries', 'last_error', 'TEXT'),
+          ('queries', 'last_error_at', 'TEXT'),
+          ('alerts', 'title', 'TEXT'),
+          ('alerts', 'body', 'TEXT'),
+        ]) {
+          await _ensureColumn(database, table: table, column: column, definition: definition);
+        }
+        await database.execute('''
+          CREATE TABLE IF NOT EXISTS teams (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            members TEXT NOT NULL DEFAULT '[]'
+          )
+        ''');
       },
     );
   }
@@ -276,7 +296,12 @@ class DatabaseService {
         notification_body_template TEXT,
         schedule_weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5',
         schedule_start_hour INTEGER NOT NULL DEFAULT 8,
-        schedule_end_hour INTEGER NOT NULL DEFAULT 18
+        schedule_end_hour INTEGER NOT NULL DEFAULT 18,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        board_statuses TEXT,
+        alert_rules TEXT,
+        last_error TEXT,
+        last_error_at TEXT
       )
     ''');
 
@@ -289,7 +314,9 @@ class DatabaseService {
         current_count INTEGER NOT NULL,
         direct_url TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        is_read INTEGER NOT NULL DEFAULT 0
+        is_read INTEGER NOT NULL DEFAULT 0,
+        title TEXT,
+        body TEXT
       )
     ''');
   }
@@ -459,16 +486,25 @@ class DatabaseService {
     return rows.map(MonitoredQuery.fromDbMap).toList();
   }
 
+  /// Always creates a new row (any id on [query] is ignored).
   Future<int> insertQuery(MonitoredQuery query) async {
     final database = await db;
-    return database.insert('queries', query.toDbMap());
+    return database.insert('queries', query.toDbMap()..remove('id'));
   }
 
+  /// Saves the user-editable fields. Columns owned by the monitor and by the
+  /// board are left alone, so a stale copy from the UI can't roll them back.
   Future<void> updateQuery(MonitoredQuery query) async {
     final database = await db;
     await database.update(
       'queries',
-      query.toDbMap(),
+      query.toDbMap()
+        ..remove('id')
+        ..remove('last_count')
+        ..remove('last_checked_at')
+        ..remove('last_error')
+        ..remove('last_error_at')
+        ..remove('board_statuses'),
       where: 'id = ?',
       whereArgs: [query.id],
     );
@@ -495,10 +531,62 @@ class DatabaseService {
       {
         'last_count': lastCount,
         'last_checked_at': checkedAt.toIso8601String(),
+        'last_error': null,
+        'last_error_at': null,
       },
       where: 'id = ?',
       whereArgs: [queryId],
     );
+  }
+
+  /// Board columns for a pinned query (null = automatic).
+  Future<void> setBoardStatuses(int queryId, List<int>? statusIds) async {
+    final database = await db;
+    await database.update(
+      'queries',
+      {'board_statuses': statusIds == null ? null : jsonEncode(statusIds)},
+      where: 'id = ?',
+      whereArgs: [queryId],
+    );
+  }
+
+  Future<void> setQueryError({
+    required int queryId,
+    required String message,
+    required DateTime at,
+  }) async {
+    final database = await db;
+    await database.update(
+      'queries',
+      {'last_error': message, 'last_error_at': at.toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [queryId],
+    );
+  }
+
+  Future<List<Team>> listTeams() async {
+    final database = await db;
+    final rows = await database.query('teams', orderBy: 'name ASC');
+    return rows.map(Team.fromDbMap).toList();
+  }
+
+  Future<void> saveTeam(Team team) async {
+    final database = await db;
+    if (team.id == null) {
+      await database.insert('teams', team.toDbMap());
+    } else {
+      await database.update('teams', team.toDbMap(), where: 'id = ?', whereArgs: [team.id]);
+    }
+  }
+
+  Future<void> deleteTeam(int id) async {
+    final database = await db;
+    await database.delete('teams', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearTeams() async {
+    final database = await db;
+    await database.delete('teams');
   }
 
   Future<List<AlertEvent>> listAlerts({int limit = 100}) async {
@@ -514,16 +602,7 @@ class DatabaseService {
   Future<AlertEvent> addAlert(AlertEvent alert) async {
     final database = await db;
     final id = await database.insert('alerts', alert.toDbMap());
-    return AlertEvent(
-      id: id,
-      queryId: alert.queryId,
-      queryName: alert.queryName,
-      previousCount: alert.previousCount,
-      currentCount: alert.currentCount,
-      directUrl: alert.directUrl,
-      createdAt: alert.createdAt,
-      isRead: alert.isRead,
-    );
+    return AlertEvent.fromDbMap({...alert.toDbMap(), 'id': id});
   }
 
   Future<void> markAlertRead(int id) async {

@@ -7,11 +7,20 @@ Web e mobile sao suportes secundarios.
 
 ## O que o app faz
 
-- Configura URL do Redmine, API key e intervalo padrao.
-- Monitora consultas com polling e detecta delta de contagem.
-- Exibe alertas in-app e notificacoes locais.
-- Persiste dados em SQLite (`settings`, `queries`, `alerts`, `logs`).
-- Permite backup/restauracao de configuracao e consultas.
+- Configura URL do Redmine e API key.
+- Escolhe a consulta salva do Redmine numa lista com busca (ou cola uma URL manual).
+- Monitora consultas com polling e varias regras de notificacao por consulta
+  (qualquer mudanca, aumentou, diminuiu, `= N`, `<= N`, `>= N`), cada uma com sua mensagem.
+- Exibe alertas in-app e notificacoes locais com o mesmo texto.
+- Marca com badge "Falhou" a consulta cuja ultima verificacao deu erro.
+- Fixa consultas no menu como board (estilo Jira) ou lista; arrastar o card muda o status
+  no Redmine. As colunas (status) visiveis sao escolhidas por board e ficam salvas.
+- Abre a tarefa num modal com a descricao e o historico renderizados em Markdown.
+- Tempo gasto (times): os membros vem dos projetos do Redmine (nao precisa ser admin); horas por
+  pessoa e dia, detalhadas por tarefa ou por tipo de atividade. So aparecem as horas que o seu
+  papel pode ver (permissao "Ver tempo gasto").
+- Persiste dados em SQLite (`settings`, `queries`, `alerts`, `monitor_logs`, `teams`).
+- Permite backup/restauracao de configuracao, consultas e times.
 - Suporta tema claro, escuro e sistema.
 
 ## Importante antes de tudo
@@ -128,8 +137,10 @@ flutter build ios --release
 - `lib/services/database_service.dart`: SQLite singleton e schema.
 - `lib/services/redmine_api_service.dart`: chamadas HTTP ao Redmine.
 - `lib/services/monitor_service.dart`: scheduler de polling + deteccao de delta.
-- `lib/services/notifications/notification_template_service.dart`: render de templates.
-- `src/web_proxy.js`: proxy CORS para o Web (`POST /redmine-proxy/fetch`).
+- `lib/services/notifications/notification_template_service.dart`: escolha e render de templates.
+- `lib/ui/board/`: board/lista das consultas fixadas e modal da tarefa.
+- `lib/ui/teams/`: times e relatorio de horas.
+- `src/web_proxy.js`: proxy CORS para o Web (`POST /redmine-proxy/fetch`, GET e PUT).
 
 ## Templates de notificacao
 
@@ -139,11 +150,17 @@ Placeholders suportados em titulo e mensagem:
 - `{previousCount}`
 - `{currentCount}`
 - `{diff}`
+- `{newCount}`
 - `{time}`
 - `{url}`
+
+Ordem de escolha: mensagem da regra -> template global de aumento/diminuicao -> template generico.
+O texto renderizado fica gravado no alerta.
 
 ## Observacoes
 
 - O monitoramento acontece enquanto o app esta aberto.
+- Textos do Redmine sao renderizados como Markdown (`flutter_markdown_plus`). Instancias
+  configuradas com Textile aparecem quase como texto puro.
 - No Web, dados ficam no `IndexedDB` e sao separados por origem (`host:porta`).
 - Para manter os dados no desenvolvimento Web, use sempre `--web-port 64451`.

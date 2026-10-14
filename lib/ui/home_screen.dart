@@ -4,13 +4,15 @@ import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../models/alert_event.dart';
 import '../state/app_state.dart';
 import '../services/theme_service.dart';
+import 'components.dart';
+import 'ui_utils.dart';
+import 'board/board_view.dart';
 import 'onboarding_screen.dart';
+import 'teams/teams_view.dart';
 import 'widgets/alerts_card.dart';
 import 'widgets/logs_card.dart';
-import 'widgets/monitoring_health_card.dart';
 import 'widgets/queries_card.dart';
 import 'widgets/settings_card.dart';
 
@@ -27,10 +29,15 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with WindowListener, TrayListener {
+class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListener {
   String _lastAlertKey = '';
-  int _selectedIndex = 0;
+  _Page _page = _Page.monitoring;
+
+  /// Pinned query shown as a board over the regular pages, if any.
+  int? _boardQueryId;
+
+  /// User choice; null = automatic (collapsed on narrow windows).
+  bool? _collapsed;
 
   @override
   void initState() {
@@ -82,157 +89,161 @@ class _HomeScreenState extends State<HomeScreen>
 
     return Consumer<AppState>(
       builder: (context, appState, _) {
-        _showAlertSnackIfNeeded(context, appState.lastAlert);
+        _showAlertSnackIfNeeded(context, appState);
 
         if (appState.loading) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-
         if (appState.initError != null) {
           return _ErrorScreen(error: appState.initError!, onRetry: appState.retryInit);
         }
 
-        final sidebarBg = dark ? AppColors.darkCard : AppColors.pureWhite;
-        final contentBg = dark ? AppColors.darkSurface : AppColors.warmWhite;
-        final borderColor = dark ? AppColors.darkBorder : AppColors.whisperBorder;
-        final hasConfiguredAccount =
-            appState.settings.baseUrl.trim().isNotEmpty &&
+        final width = MediaQuery.sizeOf(context).width;
+        final collapsed = _collapsed ?? width < 1100;
+        final narrow = width < 1100;
+        final unreadAlerts = appState.alerts.where((a) => !a.isRead).length;
+        final failedQueries = appState.queries.where((q) => q.lastError != null).length;
+        final pinned = appState.queries.where((q) => q.pinned && q.id != null).toList();
+        final board = pinned.where((q) => q.id == _boardQueryId).firstOrNull;
+        if (board == null) _boardQueryId = null; // board was unpinned or deleted
+        final hasAccount = appState.settings.baseUrl.trim().isNotEmpty &&
             appState.settings.apiKey.trim().isNotEmpty;
-        final accountLabel = (appState.settings.accountName?.trim().isNotEmpty ?? false)
+        final accountName = (appState.settings.accountName?.trim().isNotEmpty ?? false)
             ? appState.settings.accountName!.trim()
             : 'Conta conectada';
+        final hPad = narrow ? 24.0 : 34.0;
 
         return Scaffold(
-          backgroundColor: contentBg,
+          backgroundColor: AppColors.page(dark: dark),
           body: Row(
             children: [
               // ── Sidebar ──────────────────────────────────────────────
-              SizedBox(
-                width: 200,
-                child: Container(
-                  color: sidebarBg,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Brand mark
-                      Container(
-                        height: 56,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Row(
-                          children: [
-                            Image.asset('assets/icon.png', width: 22, height: 22),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Redmine',
-                              style: AppText.bodySemibold(dark: dark),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(height: 1, color: borderColor),
-                      const SizedBox(height: 8),
-                      // Nav items
-                      _NavItem(
-                        icon: Icons.podcasts_outlined,
-                        activeIcon: Icons.podcasts,
-                        label: 'Monitoração',
-                        selected: _selectedIndex == 0,
-                        dark: dark,
-                        onTap: () => setState(() => _selectedIndex = 0),
-                      ),
-                      _NavItem(
-                        icon: Icons.query_stats_outlined,
-                        activeIcon: Icons.query_stats,
-                        label: 'Consultas',
-                        selected: _selectedIndex == 1,
-                        dark: dark,
-                        onTap: () => setState(() => _selectedIndex = 1),
-                      ),
-                      _NavItem(
-                        icon: Icons.tune_outlined,
-                        activeIcon: Icons.tune,
-                        label: 'Configuração',
-                        selected: _selectedIndex == 2,
-                        dark: dark,
-                        onTap: () => setState(() => _selectedIndex = 2),
-                      ),
-                      _NavItem(
-                        icon: Icons.receipt_long_outlined,
-                        activeIcon: Icons.receipt_long,
-                        label: 'Logs',
-                        selected: _selectedIndex == 3,
-                        dark: dark,
-                        onTap: () => setState(() => _selectedIndex = 3),
-                      ),
-                    ],
-                  ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                width: collapsed ? 75 : 240,
+                decoration: BoxDecoration(
+                  color: AppColors.sidebar(dark: dark),
+                  border: Border(right: BorderSide(color: AppColors.border(dark: dark))),
                 ),
-              ),
-
-              // Divider
-              Container(width: 1, color: borderColor),
-
-              // ── Main área ────────────────────────────────────────────
-              Expanded(
+                padding: const EdgeInsets.fromLTRB(10, 24, 10, 16),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Top header bar
-                    Container(
-                      height: 56,
-                      color: sidebarBg,
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Row(
+                    _Brand(
+                      dark: dark,
+                      onToggle: () => setState(() => _collapsed = !collapsed),
+                    ),
+                    const SizedBox(height: 22),
+                    Expanded(
+                      child: ListView(
                         children: [
-                          if (!appState.isProductionDatabase)
-                            _EnvironmentBadge(
-                              environment: appState.databaseEnvironment,
-                              isProduction: appState.isProductionDatabase,
+                          _SectionLabel('Geral', dark: dark),
+                          _navItem(_Page.monitoring, Icons.podcasts, 'Monitoração', dark,
+                              count: unreadAlerts),
+                          _navItem(_Page.queries, Icons.search, 'Consultas', dark,
+                              count: failedQueries, countTone: TagTone.red),
+                          _navItem(_Page.teams, Icons.schedule, 'Tempo gasto', dark),
+                          if (pinned.isNotEmpty) _SectionLabel('Boards', dark: dark),
+                          for (final q in pinned)
+                            _NavItem(
+                              icon: Icons.view_kanban_outlined,
+                              label: q.name,
+                              selected: board?.id == q.id,
                               dark: dark,
+                              count: q.lastError != null ? '!' : q.lastCount?.toString(),
+                              countTone: q.lastError != null ? TagTone.red : null,
+                              onTap: () => setState(() => _boardQueryId = q.id),
                             ),
-                          const Spacer(),
-                          if (hasConfiguredAccount) ...[
-                            Icon(Icons.account_circle_outlined,
-                                size: 16,
-                                color: dark ? AppColors.darkMuted : AppColors.warmDark),
-                            const SizedBox(width: 6),
-                            Text(
-                              accountLabel,
-                              style: AppText.caption(dark: dark).copyWith(
-                                color: dark ? AppColors.darkMuted : AppColors.warmDark,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            TextButton.icon(
-                              onPressed: () => _confirmSignOut(context),
-                              icon: const Icon(Icons.logout, size: 16),
-                              label: const Text('Sair'),
-                              style: TextButton.styleFrom(
-                                foregroundColor:
-                                    dark ? AppColors.darkMuted : AppColors.warmDark,
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),
-                    Container(height: 1, color: borderColor),
-
-                    // Content
-                    Expanded(
-                      child: IndexedStack(
-                        index: _selectedIndex,
-                        children: const [
-                          _MonitoringTab(),
-                          _QueriesTab(),
-                          _SettingsTab(),
-                          _LogsTab(),
+                    Container(
+                      padding: const EdgeInsets.only(top: 14),
+                      decoration: BoxDecoration(
+                        border: Border(top: BorderSide(color: AppColors.border(dark: dark))),
+                      ),
+                      child: Column(
+                        children: [
+                          _navItem(_Page.settings, Icons.tune, 'Configuração', dark),
+                          _navItem(_Page.logs, Icons.receipt_long_outlined, 'Logs', dark),
+                          if (hasAccount)
+                            _NavItem(
+                              icon: Icons.logout,
+                              label: 'Sair',
+                              selected: false,
+                              dark: dark,
+                              onTap: () => _confirmSignOut(context),
+                            ),
                         ],
                       ),
                     ),
                   ],
+                ),
+              ),
+
+              // ── Main area ────────────────────────────────────────────
+              Expanded(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1750),
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(hPad, 28, hPad, 30),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  board == null
+                                      ? 'Workspace / $_pageTitle'
+                                      : 'Workspace / Boards / ${board.name}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppText.microLabel(dark: dark),
+                                ),
+                              ),
+                              if (!appState.isProductionDatabase) ...[
+                                _DevTag(appState.databaseEnvironment, dark: dark),
+                                const SizedBox(width: 9),
+                              ],
+                              if (hasAccount) ...[
+                                _AccountAvatar(accountName, dark: dark),
+                                const SizedBox(width: 9),
+                                Text(accountName, style: AppText.microLabel(dark: dark)),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              // Offstage keeps the pages' state while a board is open.
+                              Offstage(
+                                offstage: board != null,
+                                child: IndexedStack(
+                                  index: _page.index,
+                                  children: [
+                                    _Page.monitoring,
+                                    _Page.queries,
+                                    _Page.teams,
+                                    _Page.settings,
+                                    _Page.logs,
+                                  ].map((p) => _PageBody(page: p, hPad: hPad)).toList(),
+                                ),
+                              ),
+                              if (board != null)
+                                Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: hPad),
+                                  child: BoardView(key: ValueKey(board.id), query: board),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -242,34 +253,63 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showAlertSnackIfNeeded(BuildContext context, AlertEvent? alert) {
+  String get _pageTitle => switch (_page) {
+        _Page.monitoring => 'Monitoração',
+        _Page.queries => 'Consultas',
+        _Page.teams => 'Tempo gasto',
+        _Page.settings => 'Configuração',
+        _Page.logs => 'Logs',
+      };
+
+  Widget _navItem(
+    _Page page,
+    IconData icon,
+    String label,
+    bool dark, {
+    int count = 0,
+    TagTone? countTone,
+  }) {
+    return _NavItem(
+      icon: icon,
+      label: label,
+      selected: _page == page && _boardQueryId == null,
+      dark: dark,
+      count: count > 0 ? '$count' : null,
+      countTone: countTone,
+      onTap: () => setState(() {
+        _page = page;
+        _boardQueryId = null;
+      }),
+    );
+  }
+
+  void _showAlertSnackIfNeeded(BuildContext context, AppState appState) {
+    final alert = appState.lastAlert;
     if (alert == null) return;
     final key = '${alert.queryId}-${alert.createdAt.toIso8601String()}';
     if (key == _lastAlertKey) return;
     _lastAlertKey = key;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final diffPrefix = alert.diff > 0 ? '+' : '';
+      final (title, body) = appState.alertText(alert);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${alert.queryName}: ${alert.previousCount} → ${alert.currentCount} ($diffPrefix${alert.diff})',
-          ),
-        ),
+        SnackBar(content: Text('$title\n$body')),
       );
     });
   }
 
   Future<void> _confirmSignOut(BuildContext context) async {
-    final shouldSignOut = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
+    final shouldSignOut = await showAppDialog<bool>(
+      context,
+      (dialogContext) => AppDialog(
+        width: 460,
         title: const Text('Sair da conta'),
-        content: const Text(
+        body: Text(
           'A URL e a API key atuais serão removidas deste ambiente. As consultas salvas serão mantidas.',
+          style: AppText.captionLight(dark: Theme.of(dialogContext).brightness == Brightness.dark),
         ),
-        actions: [
-          TextButton(
+        footer: [
+          OutlinedButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Cancelar'),
           ),
@@ -291,120 +331,243 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
-class _EnvironmentBadge extends StatelessWidget {
-  const _EnvironmentBadge({
-    required this.environment,
-    required this.isProduction,
-    required this.dark,
-  });
+/// Pages that live in the main [IndexedStack]; order = stack index.
+enum _Page { monitoring, queries, teams, settings, logs }
 
-  final String environment;
-  final bool isProduction;
+class _PageBody extends StatelessWidget {
+  const _PageBody({required this.page, required this.hPad});
+
+  final _Page page;
+  final double hPad;
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = EdgeInsets.fromLTRB(hPad, 0, hPad, 28);
+    return switch (page) {
+      _Page.monitoring => ListView(padding: padding, children: const [_MonitoringPage()]),
+      _Page.queries => ListView(padding: padding, children: const [QueriesCard()]),
+      _Page.teams => ListView(padding: padding, children: const [TeamsView()]),
+      _Page.settings => ListView(padding: padding, children: const [SettingsCard()]),
+      _Page.logs => ListView(padding: padding, children: const [LogsCard()]),
+    };
+  }
+}
+
+// ─── Sidebar pieces ──────────────────────────────────────────────────────────
+
+class _Brand extends StatelessWidget {
+  const _Brand({required this.dark, required this.onToggle});
+
+  final bool dark;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = Tooltip(
+      message: 'Expandir/recolher menu',
+      child: InkWell(
+        onTap: onToggle,
+        borderRadius: BorderRadius.circular(AppRadius.standard),
+        child: Container(
+          width: 29,
+          height: 29,
+          decoration: BoxDecoration(
+            color: AppColors.accentSoft(dark: dark),
+            border: Border.all(color: AppColors.accent(dark: dark).withValues(alpha: 0.35)),
+            borderRadius: BorderRadius.circular(AppRadius.standard),
+          ),
+          child: Icon(Icons.grid_view_rounded, size: 16, color: AppColors.accent(dark: dark)),
+        ),
+      ),
+    );
+    // Adapts while the width animates.
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth < 150
+          ? Center(child: mark)
+          : Row(
+              children: [
+                const SizedBox(width: 8),
+                mark,
+                const SizedBox(width: 10),
+                Expanded(
+                  // Shrinks instead of clipping when the system font is wider.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Redmine Monitor',
+                      maxLines: 1,
+                      style: AppText.cardTitle(dark: dark).copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Recolher menu',
+                  onPressed: onToggle,
+                  icon: const Icon(Icons.menu_open, size: 18),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text, {required this.dark});
+  final String text;
   final bool dark;
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = isProduction
-        ? (dark ? const Color(0x1FD2CFC9) : const Color(0xFFF0EEEB))
-        : (dark ? const Color(0x332A9D99) : const Color(0x1F2A9D99));
-    final borderColor = isProduction
-        ? (dark ? AppColors.darkBorder : AppColors.whisperBorder)
-        : AppColors.teal.withValues(alpha: dark ? 0.45 : 0.3);
-    final textColor = isProduction
-        ? (dark ? AppColors.darkMuted : AppColors.warmDark)
-        : (dark ? const Color(0xFF7CE5D9) : AppColors.teal);
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth < 150
+          ? const SizedBox(height: 18)
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(12, 18, 12, 10),
+              child: Text(text.toUpperCase(), maxLines: 1, style: AppText.sectionLabel(dark: dark)),
+            ),
+    );
+  }
+}
 
+/// Sidebar entry. Shows only the icon (label in a tooltip) when the sidebar
+/// is too narrow, so it adapts while the width animates.
+class _NavItem extends StatelessWidget {
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.dark,
+    required this.onTap,
+    this.count,
+    this.countTone,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final bool dark;
+  final VoidCallback onTap;
+  final String? count;
+
+  /// Defaults to the neutral counter (accent when selected).
+  final TagTone? countTone;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.accent(dark: dark) : AppColors.mutedText(dark: dark);
+    final (countBg, countFg) = AppColors.tone(
+      countTone ?? (selected ? TagTone.accent : TagTone.neutral),
+      dark: dark,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 150;
+        final iconWidget = Icon(icon, size: 17, color: color);
+        return Tooltip(
+          message: compact ? label : '',
+          waitDuration: const Duration(milliseconds: 300),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Material(
+              color: selected ? AppColors.accentSoft(dark: dark) : Colors.transparent,
+              borderRadius: BorderRadius.circular(AppRadius.standard),
+              child: InkWell(
+                onTap: onTap,
+                hoverColor: AppColors.hover(dark: dark),
+                borderRadius: BorderRadius.circular(AppRadius.standard),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: compact
+                      ? Center(
+                          child: Badge(
+                            isLabelVisible: count != null,
+                            backgroundColor: countFg,
+                            smallSize: 7,
+                            child: iconWidget,
+                          ),
+                        )
+                      : Row(
+                          children: [
+                            iconWidget,
+                            const SizedBox(width: 11),
+                            Expanded(
+                              child: Text(
+                                label,
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppText.navButton(dark: dark).copyWith(
+                                  color: color,
+                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            if (count != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: countBg,
+                                  borderRadius: BorderRadius.circular(AppRadius.subtle),
+                                ),
+                                child: Text(
+                                  count!,
+                                  style: AppText.badge().copyWith(color: countFg, fontSize: 10),
+                                ),
+                              ),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─── Top bar pieces ──────────────────────────────────────────────────────────
+
+class _DevTag extends StatelessWidget {
+  const _DevTag(this.environment, {required this.dark});
+  final String environment;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: AppColors.accent(dark: dark).withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(AppRadius.subtle),
       ),
       child: Text(
         environment.toUpperCase(),
-        style: AppText.badge().copyWith(color: textColor),
+        style: AppText.badge().copyWith(fontSize: 10, color: AppColors.accent(dark: dark)),
       ),
     );
   }
 }
 
-// ─── Nav item ────────────────────────────────────────────────────────────────
-
-class _NavItem extends StatefulWidget {
-  const _NavItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.selected,
-    required this.dark,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final bool selected;
+class _AccountAvatar extends StatelessWidget {
+  const _AccountAvatar(this.name, {required this.dark});
+  final String name;
   final bool dark;
-  final VoidCallback onTap;
-
-  @override
-  State<_NavItem> createState() => _NavItemState();
-}
-
-class _NavItemState extends State<_NavItem> {
-  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    final isActive = widget.selected;
-    final inactiveColor = widget.dark ? AppColors.darkMuted : AppColors.warmDark;
-    final iconColor = isActive
-        ? AppColors.notionBlue
-        : _hovered
-            ? (widget.dark ? AppColors.pureWhite : AppColors.notionBlack)
-            : inactiveColor;
-    final textColor = isActive
-        ? AppColors.notionBlue
-        : _hovered
-            ? (widget.dark ? AppColors.pureWhite : AppColors.notionBlack)
-            : inactiveColor;
-    final bgColor = isActive
-        ? AppColors.notionBlue.withValues(alpha: 0.08)
-        : _hovered
-            ? AppColors.hoverBg
-            : Colors.transparent;
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(AppRadius.subtle),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                isActive ? widget.activeIcon : widget.icon,
-                size: 16,
-                color: iconColor,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                widget.label,
-                style: AppText.navButton(dark: widget.dark).copyWith(
-                  color: textColor,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
+    return CircleAvatar(
+      radius: 12.5,
+      backgroundColor: dark ? const Color(0xFF354B5D) : const Color(0xFFD5E0EA),
+      child: Text(
+        initialsOf(name),
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: dark ? const Color(0xFFCADBE8) : const Color(0xFF2B3A4A),
         ),
       ),
     );
@@ -430,20 +593,13 @@ class _ErrorScreen extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.warning_amber_outlined,
-                    size: 40, color: AppColors.orange),
+                Icon(Icons.warning_amber_outlined, size: 40, color: AppColors.danger(dark: dark)),
                 const SizedBox(height: Sp.s16),
-                Text('Falha ao inicializar',
-                    style: AppText.cardTitle(dark: dark)),
+                Text('Falha ao inicializar', style: AppText.cardTitle(dark: dark)),
                 const SizedBox(height: Sp.s8),
-                Text(error,
-                    textAlign: TextAlign.center,
-                    style: AppText.captionLight(dark: dark)),
+                Text(error, textAlign: TextAlign.center, style: AppText.captionLight(dark: dark)),
                 const SizedBox(height: Sp.s24),
-                FilledButton(
-                  onPressed: onRetry,
-                  child: const Text('Tentar novamente'),
-                ),
+                FilledButton(onPressed: onRetry, child: const Text('Tentar novamente')),
               ],
             ),
           ),
@@ -453,192 +609,83 @@ class _ErrorScreen extends StatelessWidget {
   }
 }
 
-// ─── Tab contents ─────────────────────────────────────────────────────────────
+// ─── Monitoração ──────────────────────────────────────────────────────────────
 
-class _MonitoringTab extends StatelessWidget {
-  const _MonitoringTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(Sp.s24),
-      children: const [
-        _HeroHeader(),
-        SizedBox(height: Sp.s16),
-        AlertsCard(),
-      ],
-    );
-  }
-}
-
-class _QueriesTab extends StatelessWidget {
-  const _QueriesTab();
+class _MonitoringPage extends StatelessWidget {
+  const _MonitoringPage();
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(Sp.s24),
-      children: const [QueriesCard()],
-    );
-  }
-}
-
-class _SettingsTab extends StatelessWidget {
-  const _SettingsTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(Sp.s24),
-      children: const [SettingsCard()],
-    );
-  }
-}
-
-class _LogsTab extends StatelessWidget {
-  const _LogsTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(Sp.s24),
-      children: const [
-        MonitoringHealthCard(),
-        SizedBox(height: Sp.s16),
-        LogsCard(),
-      ],
-    );
-  }
-}
-
-// ─── Hero header ──────────────────────────────────────────────────────────────
-
-class _HeroHeader extends StatelessWidget {
-  const _HeroHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    final appState = context.watch<AppState>();
+    final state = context.watch<AppState>();
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final activeQueries = appState.queries.where((q) => q.enabled).length;
+    final unread = state.alerts.where((a) => !a.isRead).length;
+    final failures = state.monitorLogs.where((l) => l.level == 'error').length;
 
-    return Container(
-      padding: const EdgeInsets.all(Sp.s24),
-      decoration: surfaceHeroCard(dark: dark),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const PageHeader(
+          title: 'Monitoração',
+          subtitle: 'Acompanhe mudanças e mantenha o controle das consultas.',
+        ),
+        StatGrid(
+          children: [
+            StatCard(
+              label: 'Consultas ativas',
+              value: '${state.queries.where((q) => q.enabled).length}',
+              note: 'Respeitam seus próprios agendamentos',
+              icon: Icons.search,
+            ),
+            StatCard(
+              label: 'Alertas não lidos',
+              value: '$unread',
+              note: 'Mudanças que precisam de atenção',
+              icon: Icons.notifications_none,
+            ),
+            StatCard(
+              label: 'Falhas no histórico',
+              value: '$failures',
+              note: 'Consulte os logs para investigar',
+              icon: Icons.monitor_heart_outlined,
+            ),
+            StatCard(
+              label: 'Monitoração',
+              value: state.monitoring ? 'Ativa' : 'Pausada',
+              note: state.monitoring
+                  ? 'Verificações automáticas habilitadas'
+                  : 'Verificações automáticas suspensas',
+              icon: Icons.podcasts,
+            ),
+          ],
+        ),
+        Panel(
+          padding: const EdgeInsets.all(20),
+          child: Row(
             children: [
+              IconBox(icon: Icons.podcasts, highlighted: state.monitoring),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      appState.monitoring
-                          ? 'Monitoração ativa'
-                          : 'Monitoração pausada',
+                      state.monitoring ? 'Monitoração ativa' : 'Monitoração pausada',
                       style: AppText.cardTitle(dark: dark),
                     ),
-                    const SizedBox(height: Sp.s4),
+                    const SizedBox(height: 4),
                     Text(
-                      appState.monitoring
-                          ? 'Verificando consultas periodicamente.'
-                          : 'Clique para retomar o monitoramento.',
+                      'Intervalos, dias e horários definidos em cada consulta.',
                       style: AppText.captionLight(dark: dark),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: Sp.s16),
-              _NotionSwitch(
-                value: appState.monitoring,
-                onChanged: (_) => appState.toggleMonitoring(),
-              ),
+              Switch(value: state.monitoring, onChanged: (_) => state.toggleMonitoring()),
             ],
           ),
-          const SizedBox(height: Sp.s16),
-          Wrap(
-            spacing: Sp.s8,
-            runSpacing: Sp.s8,
-            children: [
-              _MetricPill(label: 'Consultas ativas', value: '$activeQueries'),
-              _MetricPill(label: 'Alertas', value: '${appState.alerts.length}'),
-              _MetricPill(
-                  label: 'Logs',
-                  value: '${appState.monitorLogs.length}'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NotionSwitch extends StatelessWidget {
-  const _NotionSwitch({required this.value, required this.onChanged});
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onChanged(!value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 44,
-        height: 24,
-        decoration: BoxDecoration(
-          color: value ? AppColors.notionBlue : AppColors.warmGray300,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
         ),
-        padding: const EdgeInsets.all(3),
-        child: AnimatedAlign(
-          duration: const Duration(milliseconds: 150),
-          alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
-            width: 18,
-            height: 18,
-            decoration: BoxDecoration(
-              color: AppColors.pureWhite,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MetricPill extends StatelessWidget {
-  const _MetricPill({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: Sp.s8, vertical: Sp.s4),
-      decoration: BoxDecoration(
-        color: AppColors.badgeBlueBg,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: RichText(
-        text: TextSpan(
-          style: AppText.badge().copyWith(
-            color: AppColors.warmGray500,
-          ),
-          children: [
-            TextSpan(text: '$label: '),
-            TextSpan(
-              text: value,
-              style: AppText.badge()
-                  .copyWith(color: AppColors.badgeBlueText),
-            ),
-          ],
-        ),
-      ),
+        const AlertsCard(),
+      ],
     );
   }
 }

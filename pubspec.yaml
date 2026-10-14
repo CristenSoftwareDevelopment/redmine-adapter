@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   provider: ^6.1.2
   http: ^1.2.2
   sqflite: ^2.3.3+1
@@ -19,6 +21,7 @@ dependencies:
   local_notifier: ^0.1.6
   window_manager: ^0.5.1
   tray_manager: ^0.5.2
+  flutter_markdown_plus: ^1.0.12
 
 dev_dependencies:
   flutter_test:

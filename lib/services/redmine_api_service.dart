@@ -14,37 +14,26 @@ class RedmineApiService {
     defaultValue: 'http://localhost:4311',
   );
 
+  /// Absolute URL for a Redmine path (keeps already-absolute URLs).
+  static String absoluteUrl(String baseUrl, String path) {
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    return '$base${path.startsWith('/') ? path : '/$path'}';
+  }
+
   /// Fetches the current user's full name from GET /my/account.json.
   /// Throws an [Exception] if the credentials are invalid or the request fails.
   Future<String> fetchAccountName({
     required String baseUrl,
     required String apiKey,
   }) async {
-    final normalizedBase =
-        baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-    final uri = Uri.parse('$normalizedBase/my/account.json');
+    final uri = Uri.parse(absoluteUrl(baseUrl, '/my/account.json'));
 
     late http.Response response;
     try {
-      if (kIsWeb) {
-        response = await _fetchViaProxy(uri, apiKey);
-      } else {
-        response = await http.get(
-          uri,
-          headers: {
-            'Accept': 'application/json',
-            'X-Redmine-API-Key': apiKey,
-          },
-        ).timeout(_requestTimeout);
-      }
-    } on http.ClientException catch (e) {
-      throw Exception(
-        'Falha de rede: ${_describeNetworkError(uri: uri, message: e.message)}',
-      );
-    } on TimeoutException {
-      throw Exception(
-        'Falha de rede: tempo limite ao acessar ${uri.host}. Verifique a URL e sua conexão.',
-      );
+      response = await _send(apiKey, uri);
+    } on RetryableRequestException catch (e) {
+      throw Exception('Falha de rede: ${e.message}');
     }
 
     if (response.statusCode == 401 || response.statusCode == 403) {
@@ -65,12 +54,92 @@ class RedmineApiService {
     return fullName;
   }
 
-  Future<int> fetchCount({
-    required AppSettings settings,
-    required MonitoredQuery query,
+  /// GET [pathAndQuery] (relative to the configured base URL) and decode JSON.
+  Future<dynamic> getJson(AppSettings settings, String pathAndQuery) async {
+    final response = await _send(
+      settings.apiKey,
+      Uri.parse(absoluteUrl(settings.baseUrl, pathAndQuery)),
+    );
+    _ensureOk(response);
+    return jsonDecode(response.body);
+  }
+
+  /// PUT a JSON [body] to [path]. Redmine answers 204 on success, 422 with
+  /// `errors` on validation failure.
+  Future<void> putJson(
+    AppSettings settings,
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _send(
+      settings.apiKey,
+      Uri.parse(absoluteUrl(settings.baseUrl, path)),
+      method: 'PUT',
+      body: body,
+    );
+    _ensureOk(response);
+  }
+
+  /// Fetches every page of a paginated collection ([key] is the JSON list key,
+  /// e.g. `issues`, `time_entries`).
+  // ponytail: capped at [cap] items; raise it if boards/reports need more.
+  Future<List<Map<String, dynamic>>> getAllPages(
+    AppSettings settings,
+    String pathAndQuery,
+    String key, {
+    int cap = 500,
   }) async {
-    final result = await fetchCountDetailed(settings: settings, query: query);
-    return result.count;
+    final items = <Map<String, dynamic>>[];
+    while (items.length < cap) {
+      final page = await getJson(
+        settings,
+        withParams(Uri.parse(pathAndQuery), {
+          'limit': '100',
+          'offset': '${items.length}',
+        }).toString(),
+      );
+      final batch = (page[key] as List? ?? const []).cast<Map<String, dynamic>>();
+      items.addAll(batch);
+      final total = page['total_count'] as int? ?? items.length;
+      if (batch.isEmpty || items.length >= total) break;
+    }
+    return items;
+  }
+
+  /// Saved issue queries visible to the user, labelled with their project.
+  Future<List<SavedQuery>> listSavedQueries(AppSettings settings) async {
+    final [queries, projects] = await Future.wait([
+      getAllPages(settings, '/queries.json', 'queries'),
+      getAllPages(settings, '/projects.json', 'projects', cap: 2000),
+    ]);
+    final projectNames = {
+      for (final p in projects) p['id'] as int: p['name'] as String,
+    };
+    return [
+      for (final q in queries)
+        SavedQuery(
+          id: q['id'] as int,
+          name: q['name'] as String,
+          projectId: q['project_id'] as int?,
+          projectName: projectNames[q['project_id']],
+          isPublic: q['is_public'] == true,
+        ),
+    ]..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+  }
+
+  void _ensureOk(http.Response response) {
+    if (response.statusCode >= 200 && response.statusCode < 300) return;
+    if (response.statusCode == 422) {
+      Object? errors;
+      try {
+        errors = jsonDecode(response.body)['errors'];
+      } catch (_) {}
+      if (errors is List) throw Exception(errors.join('; '));
+    }
+    final body = response.body;
+    final extra =
+        body.isEmpty ? '' : ' - ${body.length > 160 ? '${body.substring(0, 160)}...' : body}';
+    throw Exception('HTTP ${response.statusCode}$extra');
   }
 
   Future<FetchCountResult> fetchCountDetailed({
@@ -89,7 +158,7 @@ class RedmineApiService {
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       final stopwatch = Stopwatch()..start();
       try {
-        final response = await _request(settings: settings, uri: uri);
+        final response = await _send(settings.apiKey, uri);
         durationMs = stopwatch.elapsedMilliseconds;
         final count = _parseCount(response: response, query: query);
         return FetchCountResult(
@@ -122,7 +191,8 @@ class RedmineApiService {
   }) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final body = response.body;
-      final extra = body.isEmpty ? '' : ' - ${body.length > 160 ? '${body.substring(0, 160)}...' : body}';
+      final extra =
+          body.isEmpty ? '' : ' - ${body.length > 160 ? '${body.substring(0, 160)}...' : body}';
       throw Exception('HTTP ${response.statusCode} ao consultar ${query.name}$extra');
     }
     dynamic decoded;
@@ -148,29 +218,54 @@ class RedmineApiService {
     );
   }
 
-  Future<http.Response> _request({
-    required AppSettings settings,
-    required Uri uri,
+  /// Single HTTP entry point: web goes through the local CORS proxy,
+  /// desktop/mobile hit Redmine directly. 5xx and network failures throw
+  /// [RetryableRequestException].
+  Future<http.Response> _send(
+    String apiKey,
+    Uri uri, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
   }) async {
     try {
+      final http.Response response;
       if (kIsWeb) {
-        final response = await _fetchViaProxy(uri, settings.apiKey);
-        if (response.statusCode >= 500) {
-          throw RetryableRequestException('Proxy retornou ${response.statusCode}.');
-        }
-        return response;
+        response = await http
+            .post(
+              Uri.parse('$_proxyBaseUrl/redmine-proxy/fetch'),
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: jsonEncode({
+                'url': uri.toString(),
+                'apiKey': apiKey,
+                'method': method,
+                if (body != null) 'body': body,
+              }),
+            )
+            .timeout(_requestTimeout);
+      } else {
+        final headers = {
+          'Accept': 'application/json',
+          'X-Redmine-API-Key': apiKey,
+        };
+        response = await (method == 'PUT'
+                ? http.put(
+                    uri,
+                    headers: {...headers, 'Content-Type': 'application/json'},
+                    body: jsonEncode(body),
+                  )
+                : http.get(uri, headers: headers))
+            .timeout(_requestTimeout);
       }
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Accept': 'application/json',
-          'X-Redmine-API-Key': settings.apiKey,
-        },
-      ).timeout(_requestTimeout);
-
       if (response.statusCode >= 500) {
-        throw RetryableRequestException('Servidor Redmine retornou ${response.statusCode}.');
+        throw RetryableRequestException(
+          kIsWeb
+              ? 'Proxy retornou ${response.statusCode}.'
+              : 'Servidor Redmine retornou ${response.statusCode}.',
+        );
       }
       return response;
     } on http.ClientException catch (error) {
@@ -188,42 +283,20 @@ class RedmineApiService {
     required String baseUrl,
     required String endpoint,
   }) {
-    final normalizedBase = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-
-    Uri uri;
-    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
-      uri = Uri.parse(endpoint);
-    } else {
-      final normalizedEndpoint = endpoint.startsWith('/') ? endpoint : '/$endpoint';
-      uri = Uri.parse('$normalizedBase$normalizedEndpoint');
-    }
-
-    final queryParameters = <String, String>{...uri.queryParameters};
-    queryParameters.putIfAbsent('limit', () => '1');
-
-    return uri.replace(
-      path: _ensureJsonPath(uri.path),
-      queryParameters: queryParameters,
-    );
+    final uri = Uri.parse(absoluteUrl(baseUrl, endpoint));
+    final withLimit =
+        uri.queryParameters.containsKey('limit') ? uri : withParams(uri, {'limit': '1'});
+    return withLimit.replace(path: _ensureJsonPath(uri.path));
   }
 
-  Future<http.Response> _fetchViaProxy(Uri targetUri, String apiKey) async {
-    final proxyUri = Uri.parse('$_proxyBaseUrl/redmine-proxy/fetch');
-    return http
-        .post(
-          proxyUri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: jsonEncode({
-            'url': targetUri.toString(),
-            'apiKey': apiKey,
-          }),
-        )
-        .timeout(_requestTimeout);
+  /// Sets [params] on [uri] keeping repeated keys (`f[]=a&f[]=b`) intact —
+  /// `Uri.queryParameters` would keep only the last one.
+  @visibleForTesting
+  static Uri withParams(Uri uri, Map<String, String> params) {
+    return uri.replace(queryParameters: {
+      ...uri.queryParametersAll,
+      for (final e in params.entries) e.key: [e.value],
+    });
   }
 
   String _describeNetworkError({
@@ -290,6 +363,32 @@ class RedmineApiService {
 
     return current;
   }
+}
+
+class SavedQuery {
+  SavedQuery({
+    required this.id,
+    required this.name,
+    this.projectId,
+    this.projectName,
+    this.isPublic = false,
+  });
+
+  final int id;
+  final String name;
+  final int? projectId;
+  final String? projectName;
+  final bool isPublic;
+
+  String get label => projectName == null ? name : '$projectName › $name';
+
+  String get _issuesPath => projectId == null ? '/issues' : '/projects/$projectId/issues';
+  String get endpoint => '$_issuesPath.json?query_id=$id';
+  String get directUrl => '$_issuesPath?query_id=$id';
+
+  /// `query_id` of a stored endpoint, or null for filter-only URLs.
+  static int? idFromEndpoint(String? endpoint) =>
+      int.tryParse(Uri.tryParse(endpoint ?? '')?.queryParameters['query_id'] ?? '');
 }
 
 class FetchCountResult {

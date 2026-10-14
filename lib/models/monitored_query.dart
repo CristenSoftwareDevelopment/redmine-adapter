@@ -1,10 +1,6 @@
-/// Controls when an alert is fired for a monitored query.
-/// - `any`: fire on any count change (default)
-/// - `increase`: fire only when count increases
-/// - `decrease`: fire only when count decreases
-const alertOnAny = 'any';
-const alertOnIncrease = 'increase';
-const alertOnDecrease = 'decrease';
+import 'dart:convert';
+
+import 'alert_rule.dart';
 
 /// Default schedule: Mon–Fri (weekdays 1–5), 08:00–18:00.
 const defaultScheduleWeekdays = [1, 2, 3, 4, 5];
@@ -24,11 +20,13 @@ class MonitoredQuery {
     this.countPath = 'total_count',
     this.pollSeconds = defaultPollSeconds,
     this.enabled = true,
-    this.alertOn = alertOnAny,
+    this.alertRules = const [AlertRule()],
     this.lastCount,
     this.lastCheckedAt,
-    this.notificationTitleTemplate,
-    this.notificationBodyTemplate,
+    this.pinned = false,
+    this.boardStatusIds,
+    this.lastError,
+    this.lastErrorAt,
     List<int>? scheduleWeekdays,
     int? scheduleStartHour,
     int? scheduleEndHour,
@@ -43,13 +41,21 @@ class MonitoredQuery {
   final String countPath;
   final int pollSeconds;
   final bool enabled;
-  final String alertOn;
+
+  /// Notification conditions, evaluated in order when the count changes.
+  final List<AlertRule> alertRules;
   final int? lastCount;
   final DateTime? lastCheckedAt;
 
-  /// Optional per-query notification templates. When set, override global settings.
-  final String? notificationTitleTemplate;
-  final String? notificationBodyTemplate;
+  /// Shown as a board in the sidebar.
+  final bool pinned;
+
+  /// Status ids chosen as board columns; null = automatic (statuses with issues).
+  final List<int>? boardStatusIds;
+
+  /// Error of the last failed check; cleared on the next successful one.
+  final String? lastError;
+  final DateTime? lastErrorAt;
 
   /// Days of week on which monitoring runs (1=Mon … 7=Sun). Default: Mon–Fri.
   final List<int> scheduleWeekdays;
@@ -81,11 +87,13 @@ class MonitoredQuery {
     String? countPath,
     int? pollSeconds,
     bool? enabled,
-    String? alertOn,
+    List<AlertRule>? alertRules,
     int? lastCount,
     DateTime? lastCheckedAt,
-    Object? notificationTitleTemplate = _sentinel,
-    Object? notificationBodyTemplate = _sentinel,
+    bool? pinned,
+    Object? boardStatusIds = _sentinel,
+    Object? lastError = _sentinel,
+    Object? lastErrorAt = _sentinel,
     List<int>? scheduleWeekdays,
     int? scheduleStartHour,
     int? scheduleEndHour,
@@ -98,15 +106,15 @@ class MonitoredQuery {
       countPath: countPath ?? this.countPath,
       pollSeconds: pollSeconds ?? this.pollSeconds,
       enabled: enabled ?? this.enabled,
-      alertOn: alertOn ?? this.alertOn,
+      alertRules: alertRules ?? this.alertRules,
       lastCount: lastCount ?? this.lastCount,
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
-      notificationTitleTemplate: notificationTitleTemplate == _sentinel
-          ? this.notificationTitleTemplate
-          : notificationTitleTemplate as String?,
-      notificationBodyTemplate: notificationBodyTemplate == _sentinel
-          ? this.notificationBodyTemplate
-          : notificationBodyTemplate as String?,
+      pinned: pinned ?? this.pinned,
+      boardStatusIds: boardStatusIds == _sentinel
+          ? this.boardStatusIds
+          : boardStatusIds as List<int>?,
+      lastError: lastError == _sentinel ? this.lastError : lastError as String?,
+      lastErrorAt: lastErrorAt == _sentinel ? this.lastErrorAt : lastErrorAt as DateTime?,
       scheduleWeekdays: scheduleWeekdays ?? this.scheduleWeekdays,
       scheduleStartHour: scheduleStartHour ?? this.scheduleStartHour,
       scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
@@ -122,11 +130,13 @@ class MonitoredQuery {
       'count_path': countPath,
       'poll_seconds': pollSeconds,
       'enabled': enabled ? 1 : 0,
-      'alert_on': alertOn,
+      'alert_rules': AlertRule.listToJson(alertRules),
       'last_count': lastCount,
       'last_checked_at': lastCheckedAt?.toIso8601String(),
-      'notification_title_template': notificationTitleTemplate,
-      'notification_body_template': notificationBodyTemplate,
+      'pinned': pinned ? 1 : 0,
+      'board_statuses': boardStatusIds == null ? null : jsonEncode(boardStatusIds),
+      'last_error': lastError,
+      'last_error_at': lastErrorAt?.toIso8601String(),
       'schedule_weekdays': scheduleWeekdays.join(','),
       'schedule_start_hour': scheduleStartHour,
       'schedule_end_hour': scheduleEndHour,
@@ -142,13 +152,26 @@ class MonitoredQuery {
       countPath: map['count_path'] as String? ?? 'total_count',
       pollSeconds: map['poll_seconds'] as int? ?? defaultPollSeconds,
       enabled: (map['enabled'] as int? ?? 1) == 1,
-      alertOn: map['alert_on'] as String? ?? alertOnAny,
+      alertRules: AlertRule.listFromJson(map['alert_rules'] as String?) ??
+          [
+            AlertRule.fromLegacy(
+              map['alert_on'] as String?,
+              map['notification_title_template'] as String?,
+              map['notification_body_template'] as String?,
+            ),
+          ],
       lastCount: map['last_count'] as int?,
       lastCheckedAt: map['last_checked_at'] == null
           ? null
           : DateTime.tryParse(map['last_checked_at'] as String),
-      notificationTitleTemplate: map['notification_title_template'] as String?,
-      notificationBodyTemplate: map['notification_body_template'] as String?,
+      pinned: (map['pinned'] as int? ?? 0) == 1,
+      boardStatusIds: map['board_statuses'] == null
+          ? null
+          : List<int>.from(jsonDecode(map['board_statuses'] as String) as List),
+      lastError: map['last_error'] as String?,
+      lastErrorAt: map['last_error_at'] == null
+          ? null
+          : DateTime.tryParse(map['last_error_at'] as String),
       scheduleWeekdays: _parseWeekdays(map['schedule_weekdays'] as String?),
       scheduleStartHour: map['schedule_start_hour'] as int? ?? defaultScheduleStartHour,
       scheduleEndHour: map['schedule_end_hour'] as int? ?? defaultScheduleEndHour,

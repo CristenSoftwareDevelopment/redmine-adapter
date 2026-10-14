@@ -4,9 +4,26 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/monitor_log.dart';
-import '../../state/app_state.dart';
+import '../../models/query_health.dart';
 import '../../services/theme_service.dart';
+import '../../state/app_state.dart';
+import '../components.dart';
+import '../ui_utils.dart';
 
+const _levels = {
+  'info': ('Informação', TagTone.blue),
+  'success': ('Sucesso', TagTone.green),
+  'error': ('Erro', TagTone.red),
+  'warn': ('Aviso', TagTone.amber),
+  'alert': ('Alerta', TagTone.purple),
+};
+
+Tag _levelTag(String level) {
+  final (label, tone) = _levels[level] ?? ('Sem execução', TagTone.neutral);
+  return Tag(label, tone: tone);
+}
+
+/// "Logs e saúde": health per query, filters and the execution history.
 class LogsCard extends StatefulWidget {
   const LogsCard({super.key});
 
@@ -15,289 +32,228 @@ class LogsCard extends StatefulWidget {
 }
 
 class _LogsCardState extends State<LogsCard> {
-  final TextEditingController _searchController = TextEditingController();
-  String _levelFilter = 'all';
+  final _search = TextEditingController();
+  String _level = '';
+  bool _moreFilters = false;
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _search.dispose();
     super.dispose();
   }
+
+  void _clear() => setState(() {
+        _search.clear();
+        _level = '';
+      });
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final search = _searchController.text.trim().toLowerCase();
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final q = searchKey(_search.text.trim());
+    final logs = [
+      for (final log in state.monitorLogs)
+        if ((_level.isEmpty || log.level == _level) &&
+            (q.isEmpty || searchKey('${log.queryName ?? ''} ${log.message}').contains(q)))
+          log,
+    ];
 
-    final logs = state.monitorLogs.where((log) {
-      if (_levelFilter != 'all' && log.level != _levelFilter) {
-        return false;
-      }
-      if (search.isEmpty) {
-        return true;
-      }
-      final full = '${log.queryName ?? ''} ${log.message}'.toLowerCase();
-      return full.contains(search);
-    }).toList();
-
-    return Container(
-      decoration: surfaceCard(dark: dark),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Logs de monitoração',
-                    style: AppText.cardTitle(dark: dark),
-                  ),
-                ),
-                TextButton(
-                  onPressed: state.monitorLogs.isEmpty ? null : state.clearMonitorLogs,
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.notionBlue,
-                  ),
-                  child: const Text('Limpar'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _searchController,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                labelText: 'Buscar em logs',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const PageHeader(
+          title: 'Logs e saúde',
+          subtitle: 'Acompanhe verificações e investigue falhas nas consultas.',
+        ),
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const PanelHead(
+                title: Text('Saúde da monitoração'),
+                subtitle: 'Último registro disponível por consulta.',
               ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _filterChip('all', 'Todos', dark),
-                _filterChip('info', 'Info', dark),
-                _filterChip('error', 'Erro', dark),
-                _filterChip('warn', 'Aviso', dark),
-                _filterChip('alert', 'Alerta', dark),
-                _filterChip('success', 'Sucesso', dark),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (logs.isEmpty)
-              Text('Sem execuções registradas ainda.', style: AppText.captionLight(dark: dark))
-            else
-              ...logs.map((log) => _LogTile(log: log)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _filterChip(String value, String label, bool dark) {
-    final selected = _levelFilter == value;
-    final bg = selected
-        ? AppColors.notionBlue
-        : (dark ? AppColors.darkCard : AppColors.warmWhite);
-    final textCol = selected ? AppColors.pureWhite : AppColors.warmGray500;
-    final borderCol =
-        selected ? AppColors.notionBlue : AppColors.whisperBorder;
-
-    return GestureDetector(
-      onTap: () => setState(() => _levelFilter = value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: Border.all(color: borderCol),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: textCol,
-            fontSize: 13,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              if (state.queryHealth.isEmpty)
+                const EmptyState(text: 'Sem consultas cadastradas.')
+              else
+                for (final item in state.queryHealth)
+                  _HealthRow(
+                    item: item,
+                    onShowLogs: () => setState(() {
+                      _search.text = item.queryName;
+                    }),
+                  ),
+            ],
           ),
         ),
-      ),
+        FiltersPanel(
+          controls: [
+            SearchField(
+              controller: _search,
+              hint: 'Buscar na mensagem do log…',
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
+          actions: [
+            MoreFiltersButton(
+              open: _moreFilters,
+              onPressed: () => setState(() => _moreFilters = !_moreFilters),
+            ),
+          ],
+          extra: !_moreFilters
+              ? null
+              : [
+                  LabeledField(
+                    label: 'Nível',
+                    child: SelectBox<String>(
+                      value: _level,
+                      items: [
+                        const DropdownMenuItem(value: '', child: Text('Todos os níveis')),
+                        for (final e in _levels.entries)
+                          DropdownMenuItem(value: e.key, child: Text(e.value.$1)),
+                      ],
+                      onChanged: (v) => setState(() => _level = v ?? ''),
+                    ),
+                  ),
+                ],
+          summary: FilterSummary(
+            text: '${logs.length} registro${logs.length == 1 ? '' : 's'}',
+            chips: [
+              if (_level.isNotEmpty) _levels[_level]!.$1,
+              if (_search.text.trim().isNotEmpty) 'Busca: ${_search.text.trim()}',
+            ],
+            onClear: _clear,
+          ),
+        ),
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              PanelHead(
+                title: const Text('Histórico de execução'),
+                trailing: TextButton(
+                  onPressed: state.monitorLogs.isEmpty ? null : state.clearMonitorLogs,
+                  style: TextButton.styleFrom(foregroundColor: AppColors.danger(dark: dark)),
+                  child: const Text('Limpar histórico'),
+                ),
+              ),
+              if (logs.isEmpty)
+                const EmptyState(text: 'Nenhum registro corresponde à seleção.')
+              else
+                for (final log in logs) _LogRow(log: log),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _LogTile extends StatelessWidget {
-  const _LogTile({required this.log});
+class _HealthRow extends StatelessWidget {
+  const _HealthRow({required this.item, required this.onShowLogs});
+
+  final QueryHealth item;
+  final VoidCallback onShowLogs;
+
+  @override
+  Widget build(BuildContext context) {
+    final failed = item.lastStatus == 'error';
+    return ListRow(
+      leading: IconBox(icon: failed ? Icons.monitor_heart_outlined : Icons.verified_user_outlined),
+      title: Wrap(
+        spacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [Text(item.queryName), _levelTag(item.lastStatus)],
+      ),
+      meta: [
+        Text(
+          '${item.enabled ? 'Ativa' : 'Pausada'} · Última execução ${fmtDateTime(item.lastCheckedAt)}'
+          ' · Contagem: ${item.lastCount ?? '-'}',
+        ),
+        if (item.lastMessage != null)
+          Text(item.lastMessage!, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ],
+      actions: [
+        OutlinedButton(onPressed: onShowLogs, child: const Text('Ver logs')),
+      ],
+    );
+  }
+}
+
+class _LogRow extends StatefulWidget {
+  const _LogRow({required this.log});
 
   final MonitorLog log;
 
   @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final color = _levelColor(log.level);
-    final queryPrefix = log.queryName == null ? '' : '[${log.queryName}] ';
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Sp.s8),
-      child: ClipRRect(
-      borderRadius: BorderRadius.circular(AppRadius.standard),
-      child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: Sp.s12, vertical: Sp.s8),
-      decoration: BoxDecoration(
-        color: dark ? const Color(0xFF2A2825) : AppColors.warmWhite,
-        border: Border(
-          top: BorderSide(
-              color: dark ? AppColors.darkBorder : AppColors.whisperBorder),
-          right: BorderSide(
-              color: dark ? AppColors.darkBorder : AppColors.whisperBorder),
-          bottom: BorderSide(
-              color: dark ? AppColors.darkBorder : AppColors.whisperBorder),
-          left: BorderSide(color: color, width: 3),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.circle, color: color, size: 8),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('$queryPrefix${log.message}',
-                    style: AppText.body(dark: dark)),
-                const SizedBox(height: Sp.s4),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.12),
-                        borderRadius:
-                            BorderRadius.circular(AppRadius.pill),
-                      ),
-                      child: Text(
-                        log.level.toUpperCase(),
-                        style: AppText.badge().copyWith(color: color),
-                      ),
-                    ),
-                    const SizedBox(width: Sp.s8),
-                    Text(
-                      _fmtDate(log.createdAt),
-                      style: AppText.microLabel(dark: dark),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          if (log.responseBody != null)
-            IconButton(
-              tooltip: 'Ver resposta da API',
-              icon: const Icon(Icons.data_object_outlined,
-                  size: 18, color: AppColors.warmGray500),
-              onPressed: () =>
-                  _showResponseModal(context, log.responseBody!, dark),
-            ),
-        ],
-      ),
-    ), // Container
-    ), // ClipRRect
-    ); // Padding
+  State<_LogRow> createState() => _LogRowState();
+}
+
+class _LogRowState extends State<_LogRow> {
+  bool _details = false;
+
+  String get _formattedBody {
+    final raw = widget.log.responseBody!;
+    try {
+      return const JsonEncoder.withIndent('  ').convert(jsonDecode(raw));
+    } catch (_) {
+      return raw;
+    }
   }
 
-  void _showResponseModal(BuildContext context, String rawBody, bool dark) {
-    String formatted;
-    try {
-      final decoded = jsonDecode(rawBody);
-      formatted = const JsonEncoder.withIndent('  ').convert(decoded);
-    } catch (_) {
-      formatted = rawBody;
-    }
-
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: Container(
-          decoration: surfaceCard(dark: dark),
-          constraints: const BoxConstraints(maxWidth: 680, maxHeight: 520),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final log = widget.log;
+    return ListRow(
+      accentBorder: AppColors.logLevel(log.level),
+      title: Text(log.message, style: AppText.body(dark: dark)),
+      meta: [
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _levelTag(log.level),
+            Text(
+              [fmtDateTime(log.createdAt), if (log.queryName != null) log.queryName!].join(' · '),
+            ),
+          ],
+        ),
+      ],
+      below: log.responseBody == null
+          ? null
+          : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.data_object_outlined),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Resposta da API',
-                        style: AppText.bodyMedium(dark: dark),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(ctx).pop(),
-                    ),
-                  ],
+                const SizedBox(height: 6),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    foregroundColor: AppColors.mutedText(dark: dark),
+                  ),
+                  onPressed: () => setState(() => _details = !_details),
+                  icon: Icon(_details ? Icons.expand_less : Icons.chevron_right, size: 16),
+                  label: const Text('Detalhes técnicos'),
                 ),
-                Divider(
-                    color: dark
-                        ? AppColors.darkBorder
-                        : AppColors.whisperBorder),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: SelectableText(
-                      formatted,
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        height: 1.5,
-                        color: dark
-                            ? AppColors.warmGray300
-                            : AppColors.warmGray500,
+                if (_details)
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 320),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(13),
+                    decoration: BoxDecoration(
+                      color: AppColors.well(dark: dark),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: SingleChildScrollView(
+                      child: SelectableText(
+                        _formattedBody,
+                        style: AppText.mono(dark: dark),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
-          ),
-        ),
-      ),
     );
-  }
-
-  Color _levelColor(String level) {
-    switch (level) {
-      case 'error':
-        return AppColors.orange;
-      case 'warn':
-        return const Color(0xFFDD9900);
-      case 'alert':
-        return const Color(0xFF7B5EA7);
-      case 'success':
-        return AppColors.green;
-      case 'info':
-        return AppColors.notionBlue;
-      default:
-        return AppColors.warmGray500;
-    }
-  }
-
-  String _fmtDate(DateTime date) {
-    final local = date.toLocal();
-    final y = local.year.toString().padLeft(4, '0');
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    final h = local.hour.toString().padLeft(2, '0');
-    final min = local.minute.toString().padLeft(2, '0');
-    final sec = local.second.toString().padLeft(2, '0');
-    return '$d-$m-$y $h:$min:$sec';
   }
 }

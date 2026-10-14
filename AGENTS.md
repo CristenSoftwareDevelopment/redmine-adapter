@@ -50,14 +50,21 @@ lib/
   main.dart               — bootstrap: DB factory, AlertNotifier, window/tray (desktop only)
   state/app_state.dart    — single ChangeNotifier; holds all UI state
   services/
-    database_service.dart      — SQLite singleton; tables: settings, queries, alerts, logs
-    redmine_api_service.dart   — HTTP to Redmine (via proxy on web, direct on desktop/mobile)
-    monitor_service.dart       — polling scheduler + delta detection
+    database_service.dart      — SQLite singleton; tables: settings, queries, alerts, monitor_logs, teams
+    redmine_api_service.dart   — HTTP to Redmine via one `_send` (proxy on web, direct elsewhere);
+                                 getJson / putJson / getAllPages
+    monitor_service.dart       — polling scheduler, picks the first matching AlertRule
     notifications/             — AlertNotifier (local_notifier) + NotificationTemplateService
-  models/                 — pure data classes (AlertEvent, AppSettings, MonitoredQuery, …)
+  models/                 — pure data classes (AlertRule, AlertEvent, MonitoredQuery, Team, TimeEntry, …)
   ui/
-    home_screen.dart      — root scaffold with bottom nav
-    widgets/              — per-tab widgets
+    home_screen.dart      — root scaffold: collapsible sidebar (pages + pinned boards)
+    board/                — board/list of a pinned query (columns saved in queries.board_statuses),
+                            issue detail dialog (Markdown via flutter_markdown_plus)
+    teams/                — teams (members from /projects/:id/memberships.json) + time report
+    widgets/              — per-page content (alerts, queries + form, logs, settings)
+    components.dart       — layout kit: PageHeader, Panel, FiltersPanel, StatCard, ListRow,
+                            Tag, AppTabs, SegmentButtons, AppDialog… (see DESIGN.md)
+    ui_utils.dart         — fmtDateTime/fmtDate, searchKey, openRedmineLink, UserAvatar
 
 src/web_proxy.js          — Node CORS proxy; single endpoint POST /redmine-proxy/fetch
 ```
@@ -85,19 +92,36 @@ SQLite on web uses browser `IndexedDB`, scoped by `origin (host:port)`. Changing
 
 ## Proxy contract
 
-Proxy accepts only `POST /redmine-proxy/fetch` with JSON body `{ url, apiKey }`. Forwards request to Redmine with `X-Redmine-API-Key` header. Any other path returns 404. Port defaults to `4311`; override with env `REDMINE_PROXY_PORT`.
+Proxy accepts only `POST /redmine-proxy/fetch` with JSON body `{ url, apiKey, method?, body? }`. `method` is `GET` (default) or `PUT`; `body` is forwarded as JSON. Forwards request to Redmine with `X-Redmine-API-Key` header. Any other path returns 404. Port defaults to `4311`; override with env `REDMINE_PROXY_PORT`.
+
+## Schema changes
+
+New columns/tables are added idempotently in `onOpen` (`_ensureColumn`, `CREATE TABLE IF NOT EXISTS`) and also in the `CREATE TABLE` for fresh databases. Legacy `queries.alert_on` + per-query templates are read once into `alert_rules` (JSON) by `MonitoredQuery.fromDbMap`.
 
 ---
 
-## Notification templates
+## Notification rules and templates
 
-Placeholders for title/message: `{queryName}`, `{previousCount}`, `{currentCount}`, `{diff}`, `{time}`, `{url}`. Rendering logic in `NotificationTemplateService` — only unit-tested class.
+Each query has a list of `AlertRule`s (`any`, `increase`, `decrease`, `eq`, `lte`, `gte`), evaluated only when the count changes; the first match fires. `lte`/`gte` fire only when crossing the threshold. Text is resolved by `NotificationTemplateService.resolve` (rule template → global increase/decrease → generic) and stored on the alert, so the OS notification and the in-app list always match.
+
+Placeholders for title/message: `{queryName}`, `{previousCount}`, `{currentCount}`, `{diff}`, `{newCount}`, `{time}`, `{url}`.
 
 ---
 
 ## Tests
 
-One test file: `test/widget_test.dart` — tests `NotificationTemplateService.render()`. No widget tests, no integration tests. Run with `flutter test`.
+One test file: `test/widget_test.dart` — templates/resolve, `AlertRule` semantics and legacy migration, URL param handling, time-entry aggregation, plus a widget test of the query form. In widget tests all HTTP returns 400, which the form uses to exercise its manual-URL fallback. Run with `flutter test`.
+
+## Visual identity
+
+Colors come only from theme-aware tokens (`AppColors.accent(dark: dark)` …) in
+`lib/services/theme_service.dart`; screens compose `lib/ui/components.dart`. Both
+light and dark themes exist. Material texts are Portuguese (`flutter_localizations`,
+locale pt_BR). Guide: [DESIGN.md](DESIGN.md).
+
+## Formatting
+
+Files are formatted with `dart format -l 100`, but not every file is — format only the files you change.
 
 ---
 

@@ -4,10 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../models/alert_event.dart';
+import '../models/alert_rule.dart';
 import '../models/app_settings.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
 import '../models/query_health.dart';
+import '../models/team.dart';
 import '../services/database_service.dart';
 import '../services/monitor_service.dart';
 import '../services/notifications/alert_notifier.dart';
@@ -40,6 +42,7 @@ class AppState extends ChangeNotifier {
   List<MonitoredQuery> queries = const [];
   List<AlertEvent> alerts = const [];
   List<MonitorLog> monitorLogs = const [];
+  List<Team> teams = const [];
 
   bool loading = true;
   bool monitoring = false;
@@ -120,6 +123,7 @@ class AppState extends ChangeNotifier {
     queries = await _databaseService.listQueries();
     alerts = await _databaseService.listAlerts();
     monitorLogs = await _databaseService.listMonitorLogs();
+    teams = await _databaseService.listTeams();
     notifyListeners();
   }
 
@@ -170,6 +174,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> saveTeam(Team team) async {
+    await _databaseService.saveTeam(team);
+    await refreshData();
+  }
+
+  Future<void> deleteTeam(int id) async {
+    await _databaseService.deleteTeam(id);
+    await refreshData();
+  }
+
   Future<void> signOut() async {
     final clearedSettings = settings.copyWith(
       baseUrl: '',
@@ -207,12 +221,25 @@ class AppState extends ChangeNotifier {
     await updateQuery(query.copyWith(enabled: !query.enabled));
   }
 
+  Future<void> setBoardStatuses(MonitoredQuery query, List<int>? statusIds) async {
+    await _databaseService.setBoardStatuses(query.id!, statusIds);
+    await refreshData();
+  }
+
+  /// Pins/unpins a query as a sidebar board without restarting the monitor.
+  Future<void> togglePinned(MonitoredQuery query) async {
+    await _databaseService.updateQuery(query.copyWith(pinned: !query.pinned));
+    await refreshData();
+  }
+
   Future<void> duplicateQuery(MonitoredQuery query) async {
     final duplicate = query.copyWith(
       id: null,
       name: '${query.name} (cópia)',
       lastCount: null,
       lastCheckedAt: null,
+      lastError: null,
+      lastErrorAt: null,
     );
     await addQuery(duplicate);
   }
@@ -283,7 +310,7 @@ class AppState extends ChangeNotifier {
 
   String exportBackupJson() {
     final payload = {
-      'version': 2,
+      'version': 3,
       'settings': {
         'baseUrl': settings.baseUrl,
         'apiKey': settings.apiKey,
@@ -304,12 +331,18 @@ class AppState extends ChangeNotifier {
                 'countPath': q.countPath,
                 'pollSeconds': q.pollSeconds,
                 'enabled': q.enabled,
-                'alertOn': q.alertOn,
-                'notificationTitleTemplate': q.notificationTitleTemplate,
-                'notificationBodyTemplate': q.notificationBodyTemplate,
+                'alertRules': q.alertRules.map((r) => r.toJson()).toList(),
+                'pinned': q.pinned,
+                'boardStatuses': q.boardStatusIds,
                 'scheduleWeekdays': q.scheduleWeekdays,
                 'scheduleStartHour': q.scheduleStartHour,
                 'scheduleEndHour': q.scheduleEndHour,
+              })
+          .toList(),
+      'teams': teams
+          .map((t) => {
+                'name': t.name,
+                'members': t.members.map((m) => m.toJson()).toList(),
               })
           .toList(),
     };
@@ -327,7 +360,7 @@ class AppState extends ChangeNotifier {
     }
 
     final version = parsed['version'] as int? ?? 1;
-    if (version < 1 || version > 2) {
+    if (version < 1 || version > 3) {
       throw FormatException('Versão de backup não suportada: $version');
     }
 
@@ -358,31 +391,66 @@ class AppState extends ChangeNotifier {
           settingsMap['notificationDecreaseBodyTemplate'] as String?,
     );
 
+    // Parse everything before touching the database, so a bad entry
+    // aborts the import instead of leaving tables half cleared.
+    final queries = [
+      for (final entry in queriesList.whereType<Map>())
+        MonitoredQuery(
+          name: (entry['name'] ?? 'Consulta').toString(),
+          endpoint: (entry['endpoint'] ?? '').toString(),
+          directUrl: (entry['directUrl'] ?? '').toString(),
+          countPath: (entry['countPath'] ?? 'total_count').toString(),
+          pollSeconds: int.tryParse('${entry['pollSeconds']}') ?? defaultPollSeconds,
+          enabled: (entry['enabled'] ?? true) == true,
+          alertRules: entry['alertRules'] is List
+              ? [
+                  for (final r in (entry['alertRules'] as List).whereType<Map>())
+                    AlertRule.fromJson(Map<String, dynamic>.from(r)),
+                ]
+              : [
+                  AlertRule.fromLegacy(
+                    entry['alertOn'] as String?,
+                    entry['notificationTitleTemplate'] as String?,
+                    entry['notificationBodyTemplate'] as String?,
+                  ),
+                ],
+          pinned: entry['pinned'] == true,
+          boardStatusIds: entry['boardStatuses'] is List
+              ? (entry['boardStatuses'] as List).whereType<int>().toList()
+              : null,
+          scheduleWeekdays: entry['scheduleWeekdays'] is List
+              ? List<int>.from((entry['scheduleWeekdays'] as List).map((e) => e as int))
+              : defaultScheduleWeekdays,
+          scheduleStartHour: entry['scheduleStartHour'] as int? ?? defaultScheduleStartHour,
+          scheduleEndHour: entry['scheduleEndHour'] as int? ?? defaultScheduleEndHour,
+        ),
+    ];
+    // Backups before v3 have no teams: keep the current ones.
+    final teamsList = parsed['teams'];
+    final teams = teamsList is! List
+        ? null
+        : [
+            for (final entry in teamsList.whereType<Map>())
+              Team(
+                name: (entry['name'] ?? 'Time').toString(),
+                members: [
+                  for (final m in (entry['members'] as List? ?? const []).whereType<Map>())
+                    if (m['id'] is int) TeamMember.fromJson(Map<String, dynamic>.from(m)),
+                ],
+              ),
+          ];
+
     await _databaseService.saveSettings(importedSettings);
     await _databaseService.clearAlerts();
     await _databaseService.clearQueries();
-    for (final entry in queriesList) {
-      if (entry is! Map) {
-        continue;
-      }
-      final scheduleWeekdays = entry['scheduleWeekdays'] is List
-          ? List<int>.from((entry['scheduleWeekdays'] as List).map((e) => e as int))
-          : defaultScheduleWeekdays;
-      final query = MonitoredQuery(
-        name: (entry['name'] ?? 'Consulta').toString(),
-        endpoint: (entry['endpoint'] ?? '').toString(),
-        directUrl: (entry['directUrl'] ?? '').toString(),
-        countPath: (entry['countPath'] ?? 'total_count').toString(),
-        pollSeconds: int.tryParse('${entry['pollSeconds']}') ?? defaultPollSeconds,
-        enabled: (entry['enabled'] ?? true) == true,
-        alertOn: (entry['alertOn'] ?? alertOnAny).toString(),
-        notificationTitleTemplate: entry['notificationTitleTemplate'] as String?,
-        notificationBodyTemplate: entry['notificationBodyTemplate'] as String?,
-        scheduleWeekdays: scheduleWeekdays,
-        scheduleStartHour: entry['scheduleStartHour'] as int? ?? defaultScheduleStartHour,
-        scheduleEndHour: entry['scheduleEndHour'] as int? ?? defaultScheduleEndHour,
-      );
+    for (final query in queries) {
       await _databaseService.insertQuery(query);
+    }
+    if (teams != null) {
+      await _databaseService.clearTeams();
+      for (final team in teams) {
+        await _databaseService.saveTeam(team);
+      }
     }
 
     if (monitoring) {
@@ -402,15 +470,17 @@ class AppState extends ChangeNotifier {
           createdAt: DateTime.fromMillisecondsSinceEpoch(0),
         ),
       );
-      final status = latestLog.level;
+      final failed = query.lastError != null;
       return QueryHealth(
         queryId: query.id ?? -1,
         queryName: query.name,
         enabled: query.enabled,
         lastCheckedAt: query.lastCheckedAt,
         lastCount: query.lastCount,
-        lastStatus: status,
-        lastMessage: latestLog.id == null ? null : latestLog.message,
+        lastStatus: failed ? 'error' : latestLog.level,
+        lastMessage: failed
+            ? query.lastError
+            : (latestLog.id == null ? null : latestLog.message),
       );
     }).toList();
   }
@@ -449,48 +519,20 @@ class AppState extends ChangeNotifier {
     unawaited(refreshData());
   }
 
+  /// Title/body exactly as shown in the OS notification. Alerts created
+  /// before rules existed have no stored text and are rendered again.
+  (String, String) alertText(AlertEvent alert) => alert.title != null
+      ? (alert.title!, alert.body ?? '')
+      : _templateService.resolve(
+          settings,
+          // The query's first rule carries its pre-rules custom templates.
+          queries.where((q) => q.id == alert.queryId).firstOrNull?.alertRules.firstOrNull,
+          alert,
+        );
+
   Future<void> _notify(AlertEvent alert) async {
-    // Resolve template: per-query → per-alert-type → global fallback.
-    final query = queries.where((q) => q.id == alert.queryId).firstOrNull;
-
-    String titleTemplate;
-    String bodyTemplate;
-
-    if (query?.notificationTitleTemplate != null &&
-        query!.notificationTitleTemplate!.isNotEmpty) {
-      titleTemplate = query.notificationTitleTemplate!;
-      bodyTemplate =
-          query.notificationBodyTemplate?.isNotEmpty == true
-              ? query.notificationBodyTemplate!
-              : settings.notificationBodyTemplate;
-    } else if (alert.diff > 0 &&
-        settings.notificationIncreaseTitleTemplate != null &&
-        settings.notificationIncreaseTitleTemplate!.isNotEmpty) {
-      titleTemplate = settings.notificationIncreaseTitleTemplate!;
-      bodyTemplate =
-          settings.notificationIncreaseBodyTemplate?.isNotEmpty == true
-              ? settings.notificationIncreaseBodyTemplate!
-              : settings.notificationBodyTemplate;
-    } else if (alert.diff < 0 &&
-        settings.notificationDecreaseTitleTemplate != null &&
-        settings.notificationDecreaseTitleTemplate!.isNotEmpty) {
-      titleTemplate = settings.notificationDecreaseTitleTemplate!;
-      bodyTemplate =
-          settings.notificationDecreaseBodyTemplate?.isNotEmpty == true
-              ? settings.notificationDecreaseBodyTemplate!
-              : settings.notificationBodyTemplate;
-    } else {
-      titleTemplate = settings.notificationTitleTemplate;
-      bodyTemplate = settings.notificationBodyTemplate;
-    }
-
-    final title = _templateService.render(titleTemplate, alert);
-    final body = _templateService.render(bodyTemplate, alert);
-    await _alertNotifier.showAlert(
-      alert: alert,
-      title: title,
-      body: body,
-    );
+    final (title, body) = alertText(alert);
+    await _alertNotifier.showAlert(alert: alert, title: title, body: body);
   }
 
   @override

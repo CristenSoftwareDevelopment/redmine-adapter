@@ -66,8 +66,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final scheme = uri.scheme.toLowerCase();
     final host = uri.host.toLowerCase();
     final port = uri.hasPort &&
-            !((scheme == 'https' && uri.port == 443) ||
-                (scheme == 'http' && uri.port == 80))
+            !((scheme == 'https' && uri.port == 443) || (scheme == 'http' && uri.port == 80))
         ? ':${uri.port}'
         : '';
 
@@ -124,7 +123,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final previewDiffers = showPreview && preview != rawInput;
 
     return Scaffold(
-      backgroundColor: dark ? AppColors.darkSurface : AppColors.warmWhite,
+      backgroundColor: AppColors.page(dark: dark),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(Sp.s32),
         child: Align(
@@ -136,13 +135,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Center(
-                  child: Image.asset('assets/icon.png', width: 52, height: 52),
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: AppColors.accentSoft(dark: dark),
+                      border: Border.all(
+                        color: AppColors.accent(dark: dark).withValues(alpha: 0.35),
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.comfortable),
+                    ),
+                    child: Icon(
+                      Icons.grid_view_rounded,
+                      size: 26,
+                      color: AppColors.accent(dark: dark),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: Sp.s16),
                 Text(
                   'Redmine Monitor',
                   textAlign: TextAlign.center,
-                  style: AppText.subHeading(dark: dark),
+                  style: AppText.kpi(dark: dark),
                 ),
                 const SizedBox(height: Sp.s4),
                 Text(
@@ -153,19 +167,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(height: Sp.s32),
                 if (appState.onboardingErrorMessage != null) ...[
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: Sp.s16, vertical: Sp.s12),
+                    padding: const EdgeInsets.symmetric(horizontal: Sp.s16, vertical: Sp.s12),
                     decoration: BoxDecoration(
-                      color: AppColors.orange.withValues(alpha: 0.08),
-                      border: Border.all(
-                          color: AppColors.orange.withValues(alpha: 0.35)),
+                      color: AppColors.tone(TagTone.red, dark: dark).$1,
+                      border:
+                          Border.all(color: AppColors.danger(dark: dark).withValues(alpha: 0.35)),
                       borderRadius: BorderRadius.circular(AppRadius.standard),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.warning_amber_rounded,
-                            color: AppColors.orange, size: 18),
+                        Icon(Icons.warning_amber_rounded,
+                            color: AppColors.danger(dark: dark), size: 18),
                         const SizedBox(width: Sp.s8),
                         Expanded(
                           child: Text(
@@ -175,7 +188,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     '${appState.onboardingErrorMessage!}'
                                 : appState.onboardingErrorMessage!,
                             style: AppText.caption(dark: dark).copyWith(
-                              color: AppColors.orange,
+                              color: AppColors.danger(dark: dark),
                             ),
                           ),
                         ),
@@ -195,7 +208,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         Text(
                           'URL do Redmine',
                           style: AppText.caption(dark: dark).copyWith(
-                            color: dark ? AppColors.warmGray300 : AppColors.warmGray500,
+                            color: AppColors.mutedText(dark: dark),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -204,11 +217,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           controller: _baseUrlController,
                           decoration: const InputDecoration(
                             hintText: 'redmine.empresa.com',
-                            prefixIcon: Icon(
-                              Icons.link_outlined,
-                              size: 16,
-                              color: AppColors.warmGray500,
-                            ),
+                            prefixIcon: Icon(Icons.link_outlined, size: 16),
                           ),
                           keyboardType: TextInputType.url,
                           autofocus: true,
@@ -236,7 +245,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         Text(
                           'API Key',
                           style: AppText.caption(dark: dark).copyWith(
-                            color: dark ? AppColors.warmGray300 : AppColors.warmGray500,
+                            color: AppColors.mutedText(dark: dark),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -245,11 +254,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           controller: _apiKeyController,
                           decoration: const InputDecoration(
                             hintText: 'Chave de acesso da API REST',
-                            prefixIcon: Icon(
-                              Icons.key_outlined,
-                              size: 16,
-                              color: AppColors.warmGray500,
-                            ),
+                            prefixIcon: Icon(Icons.key_outlined, size: 16),
                           ),
                           obscureText: true,
                           validator: (value) {
@@ -280,10 +285,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 ? const SizedBox(
                                     width: 16,
                                     height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: AppColors.pureWhite,
-                                    ),
+                                    child: CircularProgressIndicator(strokeWidth: 2),
                                   )
                                 : const Text('Salvar e Continuar'),
                           ),
@@ -309,13 +311,13 @@ class _UrlPreviewChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textColor = dark ? AppColors.focusBlue : AppColors.badgeBlueText;
+    final textColor = AppColors.accent(dark: dark);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Sp.s12, vertical: Sp.s8),
       decoration: BoxDecoration(
-        color: dark ? AppColors.badgeBlueBg.withValues(alpha: 0.1) : AppColors.badgeBlueBg,
-        border: Border.all(color: AppColors.focusBlue.withValues(alpha: 0.2)),
-        borderRadius: BorderRadius.circular(AppRadius.micro),
+        color: AppColors.chip(dark: dark),
+        border: Border.all(color: textColor.withValues(alpha: 0.25)),
+        borderRadius: BorderRadius.circular(AppRadius.standard),
       ),
       child: Row(
         children: [
@@ -352,20 +354,20 @@ class _ErrorBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Sp.s12, vertical: Sp.s8),
       decoration: BoxDecoration(
-        color: AppColors.orange.withValues(alpha: 0.08),
-        border: Border.all(color: AppColors.orange.withValues(alpha: 0.3)),
-        borderRadius: BorderRadius.circular(AppRadius.micro),
+        color: AppColors.tone(TagTone.red, dark: dark).$1,
+        border: Border.all(color: AppColors.danger(dark: dark).withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(AppRadius.standard),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline, color: AppColors.orange, size: 16),
+          Icon(Icons.error_outline, color: AppColors.danger(dark: dark), size: 16),
           const SizedBox(width: Sp.s8),
           Expanded(
             child: Text(
               message,
               style: AppText.microLabel(dark: dark).copyWith(
-                color: AppColors.orange,
+                color: AppColors.danger(dark: dark),
               ),
             ),
           ),
