@@ -72,6 +72,7 @@ flutter run -d macos
 | Rodar no Linux | `flutter run -d linux` |
 | Testes | `flutter test` |
 | Lint | `flutter analyze` |
+| Gerar release (GitHub) | `scripts/release.sh 0.2.0` |
 
 ### Web + Redmine (obrigatorio)
 

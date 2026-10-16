@@ -26,6 +26,7 @@ flutter pub get
 | Run tests | `flutter test` |
 | Lint | `flutter analyze` |
 | Regenerate launcher icons | `dart run flutter_launcher_icons` |
+| Release (bump pubspec, push main + tag `v*`) | `scripts/release.sh 0.2.0` |
 
 **Web + Redmine**: start proxy in separate terminal before Chrome. Without it, all HTTP calls to Redmine blocked by CORS.
 
