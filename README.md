@@ -28,6 +28,14 @@ Web e mobile sao suportes secundarios.
 Este repositorio **nao** deve executar `flutter create .`.
 Os arquivos de plataforma ja existem e esse comando pode sobrescrever configuracoes.
 
+## Instalar no macOS
+
+Instala ou atualiza a partir da ultima release, sem o macOS pedir autorizacao a cada versao:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CristenSoftwareDevelopment/redmine-adapter/main/scripts/install-macos.sh | bash
+```
+
 ## Requisitos
 
 - Flutter SDK instalado
