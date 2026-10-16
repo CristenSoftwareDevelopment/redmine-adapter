@@ -14,6 +14,11 @@ Repo **not** bootstrapped with `flutter create`, platform scaffold files generat
 flutter pub get
 ```
 
+**Flutter version is pinned**: the release workflow (`.github/workflows/release.yml`) uses
+`flutter-version: 3.41.6`, the version that generated `pubspec.lock`. A floating `stable` broke the
+release once (pdfrx_engine 0.4.5 fails on newer Dart; its fix needs a newer Flutter). To upgrade,
+bump the local Flutter, `flutter pub upgrade`, and the workflow version together.
+
 ---
 
 ## Dev commands

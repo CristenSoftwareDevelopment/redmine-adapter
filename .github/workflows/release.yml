@@ -20,6 +20,10 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          # Pinned to the version that generated pubspec.lock: the latest stable
+          # broke the release (pdfrx_engine 0.4.5 doesn't compile on newer Dart,
+          # and the fixed pdfrx 2.4.8+ needs a newer Flutter). Bump together.
+          flutter-version: 3.41.6
           channel: stable
           cache: true
 
@@ -73,6 +77,10 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          # Pinned to the version that generated pubspec.lock: the latest stable
+          # broke the release (pdfrx_engine 0.4.5 doesn't compile on newer Dart,
+          # and the fixed pdfrx 2.4.8+ needs a newer Flutter). Bump together.
+          flutter-version: 3.41.6
           channel: stable
           cache: true
 
