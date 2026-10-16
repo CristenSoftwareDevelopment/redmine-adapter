@@ -25,6 +25,7 @@ class MonitoredQuery {
     this.lastCheckedAt,
     this.pinned = false,
     this.boardStatusIds,
+    this.boardPrefs = const BoardPrefs(),
     this.lastError,
     this.lastErrorAt,
     List<int>? scheduleWeekdays,
@@ -52,6 +53,9 @@ class MonitoredQuery {
 
   /// Status ids chosen as board columns; null = automatic (statuses with issues).
   final List<int>? boardStatusIds;
+
+  /// Board/list mode, filters and grouping chosen on the board.
+  final BoardPrefs boardPrefs;
 
   /// Error of the last failed check; cleared on the next successful one.
   final String? lastError;
@@ -92,6 +96,7 @@ class MonitoredQuery {
     DateTime? lastCheckedAt,
     bool? pinned,
     Object? boardStatusIds = _sentinel,
+    BoardPrefs? boardPrefs,
     Object? lastError = _sentinel,
     Object? lastErrorAt = _sentinel,
     List<int>? scheduleWeekdays,
@@ -110,9 +115,9 @@ class MonitoredQuery {
       lastCount: lastCount ?? this.lastCount,
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
       pinned: pinned ?? this.pinned,
-      boardStatusIds: boardStatusIds == _sentinel
-          ? this.boardStatusIds
-          : boardStatusIds as List<int>?,
+      boardStatusIds:
+          boardStatusIds == _sentinel ? this.boardStatusIds : boardStatusIds as List<int>?,
+      boardPrefs: boardPrefs ?? this.boardPrefs,
       lastError: lastError == _sentinel ? this.lastError : lastError as String?,
       lastErrorAt: lastErrorAt == _sentinel ? this.lastErrorAt : lastErrorAt as DateTime?,
       scheduleWeekdays: scheduleWeekdays ?? this.scheduleWeekdays,
@@ -135,6 +140,7 @@ class MonitoredQuery {
       'last_checked_at': lastCheckedAt?.toIso8601String(),
       'pinned': pinned ? 1 : 0,
       'board_statuses': boardStatusIds == null ? null : jsonEncode(boardStatusIds),
+      'board_prefs': jsonEncode(boardPrefs.toJson()),
       'last_error': lastError,
       'last_error_at': lastErrorAt?.toIso8601String(),
       'schedule_weekdays': scheduleWeekdays.join(','),
@@ -168,10 +174,12 @@ class MonitoredQuery {
       boardStatusIds: map['board_statuses'] == null
           ? null
           : List<int>.from(jsonDecode(map['board_statuses'] as String) as List),
+      boardPrefs: map['board_prefs'] == null
+          ? const BoardPrefs()
+          : BoardPrefs.fromJson(jsonDecode(map['board_prefs'] as String) as Map<String, dynamic>),
       lastError: map['last_error'] as String?,
-      lastErrorAt: map['last_error_at'] == null
-          ? null
-          : DateTime.tryParse(map['last_error_at'] as String),
+      lastErrorAt:
+          map['last_error_at'] == null ? null : DateTime.tryParse(map['last_error_at'] as String),
       scheduleWeekdays: _parseWeekdays(map['schedule_weekdays'] as String?),
       scheduleStartHour: map['schedule_start_hour'] as int? ?? defaultScheduleStartHour,
       scheduleEndHour: map['schedule_end_hour'] as int? ?? defaultScheduleEndHour,
@@ -183,6 +191,118 @@ class MonitoredQuery {
     final parts = raw.split(',').map((s) => int.tryParse(s.trim())).whereType<int>().toList();
     return parts.isEmpty ? List.unmodifiable(defaultScheduleWeekdays) : List.unmodifiable(parts);
   }
+}
+
+/// Board view choices saved per query.
+class BoardPrefs {
+  const BoardPrefs({this.listMode = false, this.groupBy, this.filters = const {}});
+
+  final bool listMode;
+
+  /// Issue reference key the board is grouped by (e.g. `fixed_version`), or null.
+  final String? groupBy;
+
+  /// Reference key → accepted ids (0 = issue without that reference).
+  final Map<String, List<int>> filters;
+
+  BoardPrefs copyWith(
+          {bool? listMode, Object? groupBy = _sentinel, Map<String, List<int>>? filters}) =>
+      BoardPrefs(
+        listMode: listMode ?? this.listMode,
+        groupBy: groupBy == _sentinel ? this.groupBy : groupBy as String?,
+        filters: filters ?? this.filters,
+      );
+
+  Map<String, Object?> toJson() => {'listMode': listMode, 'groupBy': groupBy, 'filters': filters};
+
+  static BoardPrefs fromJson(Map<String, dynamic> json) => BoardPrefs(
+        listMode: json['listMode'] == true,
+        groupBy: json['groupBy'] as String?,
+        filters: {
+          for (final e in (json['filters'] as Map? ?? const {}).entries)
+            if (e.value is List) '${e.key}': (e.value as List).whereType<int>().toList(),
+        },
+      );
+}
+
+/// Id of the built-in "Ágil" board: not a row of `queries`, never monitored.
+const agileQueryId = -1;
+
+/// Built-in board with no saved query: its scope (the server-side filters) is
+/// picked on screen; the rest uses the board's own filters and grouping.
+class AgileBoard {
+  const AgileBoard({
+    this.projectId,
+    this.projectName,
+    this.mine = true,
+    this.openOnly = true,
+    this.boardStatusIds,
+    this.prefs = const BoardPrefs(),
+  });
+
+  /// Null = every project.
+  final int? projectId;
+  final String? projectName;
+
+  /// Only issues assigned to the user.
+  final bool mine;
+  final bool openOnly;
+  final List<int>? boardStatusIds;
+  final BoardPrefs prefs;
+
+  String get _path => projectId == null ? '/issues' : '/projects/$projectId/issues';
+  String get _filters =>
+      'status_id=${openOnly ? 'open' : '*'}${mine ? '&assigned_to_id=me' : ''}&sort=updated_on:desc';
+  String get endpoint => '$_path.json?$_filters';
+  String get directUrl => '$_path?$_filters';
+
+  MonitoredQuery toQuery() => MonitoredQuery(
+        id: agileQueryId,
+        name: 'Ágil',
+        endpoint: endpoint,
+        directUrl: directUrl,
+        enabled: false,
+        boardStatusIds: boardStatusIds,
+        boardPrefs: prefs,
+      );
+
+  AgileBoard copyWith({
+    Object? projectId = _sentinel,
+    Object? projectName = _sentinel,
+    bool? mine,
+    bool? openOnly,
+    Object? boardStatusIds = _sentinel,
+    BoardPrefs? prefs,
+  }) =>
+      AgileBoard(
+        projectId: projectId == _sentinel ? this.projectId : projectId as int?,
+        projectName: projectName == _sentinel ? this.projectName : projectName as String?,
+        mine: mine ?? this.mine,
+        openOnly: openOnly ?? this.openOnly,
+        boardStatusIds:
+            boardStatusIds == _sentinel ? this.boardStatusIds : boardStatusIds as List<int>?,
+        prefs: prefs ?? this.prefs,
+      );
+
+  Map<String, Object?> toJson() => {
+        'projectId': projectId,
+        'projectName': projectName,
+        'mine': mine,
+        'openOnly': openOnly,
+        'boardStatusIds': boardStatusIds,
+        'prefs': prefs.toJson(),
+      };
+
+  static AgileBoard fromJson(Map<String, dynamic> json) => AgileBoard(
+        projectId: json['projectId'] as int?,
+        projectName: json['projectName'] as String?,
+        mine: json['mine'] != false,
+        openOnly: json['openOnly'] != false,
+        boardStatusIds: (json['boardStatusIds'] as List?)?.whereType<int>().toList(),
+        prefs: json['prefs'] is Map
+            ? BoardPrefs.fromJson(Map<String, dynamic>.from(json['prefs'] as Map))
+            : const BoardPrefs(),
+      );
 }
 
 const _sentinel = Object();

@@ -22,20 +22,57 @@ class TeamsView extends StatefulWidget {
   State<TeamsView> createState() => _TeamsViewState();
 }
 
+/// Id of "Meu tempo" (the logged-in user as a one-person team; not stored).
+const _myTeamId = -1;
+
 class _TeamsViewState extends State<TeamsView> {
   int? _selectedId;
 
+  /// "Meu tempo", built from /my/account.json; null while loading or on error.
+  Team? _me;
+  String? _meError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMe();
+  }
+
+  Future<void> _loadMe() async {
+    try {
+      final data = await RedmineApiService().getJson(
+        context.read<AppState>().settings,
+        '/my/account.json',
+      );
+      final user = data['user'] as Map;
+      final name = '${user['firstname'] ?? ''} ${user['lastname'] ?? ''}'.trim();
+      if (!mounted) return;
+      setState(() {
+        _me = Team(
+          id: _myTeamId,
+          name: 'Meu tempo',
+          members: [TeamMember(id: user['id'] as int, name: name.isEmpty ? 'Eu' : name)],
+        );
+      });
+    } catch (error) {
+      if (mounted) setState(() => _meError = '$error'.replaceFirst('Exception: ', ''));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final teams = context.watch<AppState>().teams;
+    final teams = [if (_me != null) _me!, ...context.watch<AppState>().teams];
+    // "Meu tempo" comes first, so it's the default view.
     final selected = teams.where((t) => t.id == _selectedId).firstOrNull ?? teams.firstOrNull;
+    final dark = Theme.of(context).brightness == Brightness.dark;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
           title: 'Tempo gasto',
-          subtitle: 'Acompanhe as horas do time e explore os lançamentos de cada pessoa.',
+          subtitle:
+              'Acompanhe as suas horas e as do time, e explore os lançamentos de cada pessoa.',
           actions: [
             FilledButton.icon(
               onPressed: () => _edit(null),
@@ -44,19 +81,30 @@ class _TeamsViewState extends State<TeamsView> {
             ),
           ],
         ),
-        if (selected == null)
-          const Panel(
-            child: EmptyState(
-              icon: Icons.groups_outlined,
-              text: 'Crie um time e adicione pessoas para acompanhar as horas lançadas.',
+        if (_meError != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Não foi possível carregar o seu usuário: $_meError',
+              style: AppText.microLabel(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
             ),
-          )
+          ),
+        if (selected == null)
+          _meError == null
+              ? const LinearProgressIndicator(minHeight: 2)
+              : const Panel(
+                  child: EmptyState(
+                    icon: Icons.groups_outlined,
+                    text: 'Crie um time e adicione pessoas para acompanhar as horas lançadas.',
+                  ),
+                )
         else
           _TeamReport(
             team: selected,
             teams: teams,
             onSelectTeam: (id) => setState(() => _selectedId = id),
-            onEditTeam: () => _edit(selected),
+            // "Meu tempo" isn't a saved team: nothing to edit.
+            onEditTeam: selected.id == _myTeamId ? null : () => _edit(selected),
           ),
       ],
     );
@@ -136,24 +184,13 @@ class _TeamDialogState extends State<_TeamDialog> {
 
   Future<void> _loadProjects() async {
     try {
-      final projects = await _api.getAllPages(
-        context.read<AppState>().settings,
-        '/projects.json',
-        'projects',
-        cap: 2000,
-      );
-      if (!mounted) return;
-      setState(() {
-        _projects = [
-          for (final p in projects) (id: p['id'] as int, name: p['name'] as String? ?? '?'),
-        ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      });
+      final projects = await _api.listProjects(context.read<AppState>().settings);
+      if (mounted) setState(() => _projects = projects);
     } catch (error) {
       if (mounted) setState(() => _error = '$error'.replaceFirst('Exception: ', ''));
     }
   }
 
-  /// Project members via memberships (works for any member, no admin needed).
   Future<void> _loadMembers(int projectId) async {
     setState(() {
       _projectId = projectId;
@@ -162,26 +199,12 @@ class _TeamDialogState extends State<_TeamDialog> {
       _error = null;
     });
     try {
-      final memberships = await _api.getAllPages(
+      final members = await _api.listProjectMembers(
         context.read<AppState>().settings,
-        '/projects/$projectId/memberships.json',
-        'memberships',
-        cap: 2000,
+        projectId,
       );
       if (!mounted || _projectId != projectId) return;
-      // Group memberships have `group` instead of `user`: skipped.
-      final byId = <int, TeamMember>{
-        for (final m in memberships)
-          if (m['user'] is Map)
-            (m['user'] as Map)['id'] as int: TeamMember(
-              id: (m['user'] as Map)['id'] as int,
-              name: (m['user'] as Map)['name'] as String? ?? '?',
-            ),
-      };
-      setState(() {
-        _projectMembers = byId.values.toList()
-          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      });
+      setState(() => _projectMembers = members);
     } catch (error) {
       if (mounted && _projectId == projectId) {
         setState(() => _error = '$error'.replaceFirst('Exception: ', ''));
@@ -250,18 +273,11 @@ class _TeamDialogState extends State<_TeamDialog> {
           if (_projects == null && _error == null)
             Text('Carregando projetos…', style: AppText.captionLight(dark: dark))
           else if (_projects != null)
-            DropdownMenu<int>(
-              expandedInsets: EdgeInsets.zero,
-              enableFilter: true,
-              requestFocusOnTap: true,
-              menuHeight: 300,
-              label: const Text('Adicionar membros de um projeto'),
-              hintText: 'Digite para buscar…',
-              leadingIcon: const Icon(Icons.search, size: 17),
-              dropdownMenuEntries: [
-                for (final p in _projects!) DropdownMenuEntry(value: p.id, label: p.name),
-              ],
-              onSelected: (id) {
+            SearchSelect(
+              value: _projectId,
+              options: [for (final p in _projects!) (p.id, p.name)],
+              hint: 'Adicionar membros de um projeto…',
+              onChanged: (id) {
                 if (id != null) _loadMembers(id);
               },
             ),
@@ -368,7 +384,9 @@ class _TeamReport extends StatefulWidget {
   final Team team;
   final List<Team> teams;
   final ValueChanged<int> onSelectTeam;
-  final VoidCallback onEditTeam;
+
+  /// Null for "Meu tempo".
+  final VoidCallback? onEditTeam;
 
   @override
   State<_TeamReport> createState() => _TeamReportState();
@@ -377,6 +395,7 @@ class _TeamReport extends StatefulWidget {
 class _TeamReportState extends State<_TeamReport> {
   _Preset _preset = _Preset.thisWeek;
   late DateTimeRange _range = _rangeFor(_Preset.thisWeek);
+  final _tableScroll = ScrollController();
   List<TimeEntry>? _entries;
   final Map<int, String> _subjects = {};
   bool _loading = false;
@@ -392,6 +411,12 @@ class _TeamReportState extends State<_TeamReport> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _tableScroll.dispose();
+    super.dispose();
   }
 
   @override
@@ -540,11 +565,12 @@ class _TeamReportState extends State<_TeamReport> {
                 },
               ),
             ),
-            OutlinedButton.icon(
-              onPressed: widget.onEditTeam,
-              icon: const Icon(Icons.edit_outlined, size: 17),
-              label: const Text('Editar time'),
-            ),
+            if (widget.onEditTeam != null)
+              OutlinedButton.icon(
+                onPressed: widget.onEditTeam,
+                icon: const Icon(Icons.edit_outlined, size: 17),
+                label: const Text('Editar time'),
+              ),
             LabeledField(
               label: 'Período',
               child: SegmentButtons<_Preset>(
@@ -724,95 +750,102 @@ class _TeamReportState extends State<_TeamReport> {
                 220.0,
                 constraints.maxWidth - days.length * dayWidth - totalWidth,
               );
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      color: AppColors.sunken(dark: dark),
-                      child: Row(
-                        children: [
-                          header('PESSOA', nameWidth, align: Alignment.centerLeft),
-                          for (final d in days)
-                            header('${_weekdayLabels[d.weekday - 1]} ${_dm(d)}', dayWidth),
-                          header('TOTAL', totalWidth),
-                        ],
-                      ),
-                    ),
-                    for (final m in widget.team.members)
+              // Visible, draggable bar: with many days the table runs off the panel.
+              return Scrollbar(
+                controller: _tableScroll,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: _tableScroll,
+                  padding: const EdgeInsets.only(bottom: 12),
+                  scrollDirection: Axis.horizontal,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Container(
-                        decoration: BoxDecoration(border: Border(top: border)),
+                        color: AppColors.sunken(dark: dark),
                         child: Row(
                           children: [
-                            cell(
-                              '',
-                              width: nameWidth,
-                              align: Alignment.centerLeft,
-                              selected: _focusUser == m.id && _focusDay == null,
-                              onTap: () => _focus(m.id, null),
-                              child: Row(
-                                children: [
-                                  UserAvatar(name: m.name, size: 30),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      m.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: AppText.body(dark: dark),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                            header('PESSOA', nameWidth, align: Alignment.centerLeft),
                             for (final d in days)
-                              cell(
-                                byUserDay[(m.id, d)] == null
-                                    ? '—'
-                                    : fmtHours(byUserDay[(m.id, d)]!),
-                                width: dayWidth,
-                                heat: min((byUserDay[(m.id, d)] ?? 0) / 14, 0.35),
-                                selected: _focusUser == m.id && _focusDay == d,
-                                onTap: () => _focus(m.id, d),
-                              ),
-                            cell(
-                              fmtHours(byUser[m.id] ?? 0),
-                              width: totalWidth,
-                              bold: true,
-                              accentText: true,
-                              onTap: () => _focus(m.id, null),
-                            ),
+                              header('${_weekdayLabels[d.weekday - 1]} ${_dm(d)}', dayWidth),
+                            header('TOTAL', totalWidth),
                           ],
                         ),
                       ),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.footer(dark: dark),
-                        border: Border(top: border),
-                      ),
-                      child: Row(
-                        children: [
-                          cell(
-                            'Total do time',
-                            width: nameWidth,
-                            bold: true,
-                            align: Alignment.centerLeft,
-                            onTap: () => _focus(null, null),
+                      for (final m in widget.team.members)
+                        Container(
+                          decoration: BoxDecoration(border: Border(top: border)),
+                          child: Row(
+                            children: [
+                              cell(
+                                '',
+                                width: nameWidth,
+                                align: Alignment.centerLeft,
+                                selected: _focusUser == m.id && _focusDay == null,
+                                onTap: () => _focus(m.id, null),
+                                child: Row(
+                                  children: [
+                                    UserAvatar(name: m.name, size: 30),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        m.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: AppText.body(dark: dark),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              for (final d in days)
+                                cell(
+                                  byUserDay[(m.id, d)] == null
+                                      ? '—'
+                                      : fmtHours(byUserDay[(m.id, d)]!),
+                                  width: dayWidth,
+                                  heat: min((byUserDay[(m.id, d)] ?? 0) / 14, 0.35),
+                                  selected: _focusUser == m.id && _focusDay == d,
+                                  onTap: () => _focus(m.id, d),
+                                ),
+                              cell(
+                                fmtHours(byUser[m.id] ?? 0),
+                                width: totalWidth,
+                                bold: true,
+                                accentText: true,
+                                onTap: () => _focus(m.id, null),
+                              ),
+                            ],
                           ),
-                          for (final d in days)
+                        ),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.footer(dark: dark),
+                          border: Border(top: border),
+                        ),
+                        child: Row(
+                          children: [
                             cell(
-                              fmtHours(byDay[d] ?? 0),
-                              width: dayWidth,
+                              'Total do time',
+                              width: nameWidth,
                               bold: true,
-                              selected: _focusUser == null && _focusDay == d,
-                              onTap: () => _focus(null, d),
+                              align: Alignment.centerLeft,
+                              onTap: () => _focus(null, null),
                             ),
-                          cell(fmtHours(total), width: totalWidth, bold: true, accentText: true),
-                        ],
+                            for (final d in days)
+                              cell(
+                                fmtHours(byDay[d] ?? 0),
+                                width: dayWidth,
+                                bold: true,
+                                selected: _focusUser == null && _focusDay == d,
+                                onTap: () => _focus(null, d),
+                              ),
+                            cell(fmtHours(total), width: totalWidth, bold: true, accentText: true),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               );
             },
@@ -891,12 +924,10 @@ class _TeamReportState extends State<_TeamReport> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!_byActivity && issueId != null)
-            InkWell(
-              onTap: () => _openIssue(issueId),
-              child: Text(
-                '#$issueId',
-                style: AppText.microLabel(dark: dark).copyWith(color: AppColors.accent(dark: dark)),
-              ),
+            // Click copies the number; the eye button opens the task.
+            IssueNumber(
+              issueId,
+              style: AppText.microLabel(dark: dark).copyWith(color: AppColors.accent(dark: dark)),
             ),
           Text(
             _byActivity
@@ -961,16 +992,20 @@ class _TeamReportState extends State<_TeamReport> {
                                       ),
                                     ),
                                     TextSpan(
-                                      text: [
-                                        fmtDate(_ymd(e.day)).replaceAll('-', '/'),
-                                        _byActivity
-                                            ? (e.issueId == null
-                                                ? 'Sem tarefa'
-                                                : '#${e.issueId} ${_subjects[e.issueId] ?? ''}')
-                                            : e.activity,
-                                        if (e.comments.isNotEmpty) e.comments,
-                                      ].join(' · '),
-                                    ),
+                                        text: '${fmtDate(_ymd(e.day)).replaceAll('-', '/')} · '),
+                                    if (_byActivity && e.issueId != null) ...[
+                                      WidgetSpan(
+                                        alignment: PlaceholderAlignment.baseline,
+                                        baseline: TextBaseline.alphabetic,
+                                        child: IssueNumber(
+                                          e.issueId!,
+                                          style: AppText.microLabel(dark: dark),
+                                        ),
+                                      ),
+                                      TextSpan(text: ' ${_subjects[e.issueId] ?? ''}'),
+                                    ] else
+                                      TextSpan(text: _byActivity ? 'Sem tarefa' : e.activity),
+                                    if (e.comments.isNotEmpty) TextSpan(text: ' · ${e.comments}'),
                                   ],
                                 ),
                                 maxLines: 2,

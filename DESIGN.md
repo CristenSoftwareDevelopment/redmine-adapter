@@ -33,8 +33,9 @@ rótulos 12 · subtítulos 13 · rótulos de seção do menu 10/600 com espaçam
 
 - Controles (campos, botões, selects): raio 8, altura 40.
 - Painéis: raio 12, borda de 1px, sem sombra, 20px entre painéis.
-- Diálogos: raio 14, borda `dialogBorder`, cabeçalho e rodapé fixos, fundo desfocado.
-- Página: padding 28/34 (24 abaixo de 1100px), largura máxima 1750.
+- Diálogos: raio 14, borda `dialogBorder`, cabeçalho e rodapé fixos, fundo desfocado; 85% da
+  largura da janela (confirmações sim/não: 460).
+- Página: padding 28/34 (24 abaixo de 1100px), sem largura máxima.
 - Menu lateral: 240px, recolhe para 75px (só ícones) abaixo de 1100px.
 
 ## Componentes

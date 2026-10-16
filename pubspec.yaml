@@ -22,6 +22,9 @@ dependencies:
   window_manager: ^0.5.1
   tray_manager: ^0.5.2
   flutter_markdown_plus: ^1.0.12
+  file_selector: ^1.1.0
+  pdfrx: ^2.4.7
+  video_player: ^2.11.1
 
 dev_dependencies:
   flutter_test:

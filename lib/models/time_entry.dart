@@ -58,3 +58,21 @@ String fmtHours(double hours) {
   final text = hours.toStringAsFixed(1).replaceAll('.', ',');
   return text.endsWith(',0') ? text.substring(0, text.length - 2) : text;
 }
+
+/// Typed hours: `1,5`, `1.5` or `1:30` → 1.5. Null when empty, invalid or ≤ 0.
+double? parseHours(String text) {
+  final t = text.trim();
+  final hm = RegExp(r'^(\d+):([0-5]?\d)$').firstMatch(t);
+  final hours = hm != null
+      ? int.parse(hm[1]!) + int.parse(hm[2]!) / 60
+      : double.tryParse(t.replaceAll(',', '.'));
+  return hours == null || hours <= 0 ? null : hours;
+}
+
+/// Wall-clock time from [since] to [now] as `h:mm`, rounded to 15 minutes
+/// (at least 0:15), ready for [parseHours].
+String elapsedHm(DateTime since, DateTime now) {
+  final quarters = (now.difference(since).inMinutes / 15).round();
+  final minutes = (quarters < 1 ? 1 : quarters) * 15;
+  return '${minutes ~/ 60}:${(minutes % 60).toString().padLeft(2, '0')}';
+}

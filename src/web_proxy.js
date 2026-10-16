@@ -56,8 +56,8 @@ async function handleFetch(req, res) {
   }
 
   const method = typeof parsed.method === 'string' ? parsed.method.toUpperCase() : 'GET';
-  if (method !== 'GET' && method !== 'PUT') {
-    sendJson(res, 400, { error: 'Campo method invalido (GET ou PUT)' });
+  if (method !== 'GET' && method !== 'PUT' && method !== 'POST') {
+    sendJson(res, 400, { error: 'Campo method invalido (GET, PUT ou POST)' });
     return;
   }
 
@@ -80,7 +80,8 @@ async function handleFetch(req, res) {
   }
 
   const contentType = response.headers.get('content-type') || 'application/json; charset=utf-8';
-  const body = await response.text();
+  // Raw bytes: attachments (images, PDFs) must arrive intact; JSON is unaffected.
+  const body = Buffer.from(await response.arrayBuffer());
 
   setCorsHeaders(res);
   res.statusCode = response.status;

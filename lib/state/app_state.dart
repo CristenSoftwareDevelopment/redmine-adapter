@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import '../models/alert_event.dart';
 import '../models/alert_rule.dart';
 import '../models/app_settings.dart';
+import '../models/claude_action.dart';
+import '../models/handoff_rule.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
 import '../models/query_health.dart';
@@ -149,6 +151,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Saves settings that don't affect the monitor (handoff rules, Claude
+  /// actions, sidebar width) without restarting it.
+  Future<void> savePreferences(AppSettings next) async {
+    settings = next;
+    notifyListeners();
+    await _databaseService.saveSettings(next);
+  }
+
   /// Validates credentials against /my/account.json, saves settings with the
   /// resolved account name, then starts the monitor.
   /// Throws if credentials are invalid.
@@ -222,7 +232,22 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setBoardStatuses(MonitoredQuery query, List<int>? statusIds) async {
+    if (query.id == agileQueryId) {
+      return savePreferences(
+        settings.copyWith(agileBoard: settings.agileBoard.copyWith(boardStatusIds: statusIds)),
+      );
+    }
     await _databaseService.setBoardStatuses(query.id!, statusIds);
+    await refreshData();
+  }
+
+  Future<void> setBoardPrefs(MonitoredQuery query, BoardPrefs prefs) async {
+    if (query.id == agileQueryId) {
+      return savePreferences(
+        settings.copyWith(agileBoard: settings.agileBoard.copyWith(prefs: prefs)),
+      );
+    }
+    await _databaseService.setBoardPrefs(query.id!, prefs);
     await refreshData();
   }
 
@@ -322,6 +347,9 @@ class AppState extends ChangeNotifier {
         'notificationIncreaseBodyTemplate': settings.notificationIncreaseBodyTemplate,
         'notificationDecreaseTitleTemplate': settings.notificationDecreaseTitleTemplate,
         'notificationDecreaseBodyTemplate': settings.notificationDecreaseBodyTemplate,
+        'handoffRules': settings.handoffRules.map((r) => r.toJson()).toList(),
+        'claudeActions': settings.claudeActions.map((a) => a.toJson()).toList(),
+        'agileBoard': settings.agileBoard.toJson(),
       },
       'queries': queries
           .map((q) => {
@@ -334,6 +362,7 @@ class AppState extends ChangeNotifier {
                 'alertRules': q.alertRules.map((r) => r.toJson()).toList(),
                 'pinned': q.pinned,
                 'boardStatuses': q.boardStatusIds,
+                'boardPrefs': q.boardPrefs.toJson(),
                 'scheduleWeekdays': q.scheduleWeekdays,
                 'scheduleStartHour': q.scheduleStartHour,
                 'scheduleEndHour': q.scheduleEndHour,
@@ -389,6 +418,22 @@ class AppState extends ChangeNotifier {
           settingsMap['notificationDecreaseTitleTemplate'] as String?,
       notificationDecreaseBodyTemplate:
           settingsMap['notificationDecreaseBodyTemplate'] as String?,
+      handoffRules: settingsMap['handoffRules'] is List
+          ? [
+              for (final r in (settingsMap['handoffRules'] as List).whereType<Map>())
+                HandoffRule.fromJson(Map<String, dynamic>.from(r)),
+            ]
+          : settings.handoffRules,
+      claudeActions: settingsMap['claudeActions'] is List
+          ? [
+              for (final a in (settingsMap['claudeActions'] as List).whereType<Map>())
+                ClaudeAction.fromJson(Map<String, dynamic>.from(a)),
+            ]
+          : settings.claudeActions,
+      agileBoard: settingsMap['agileBoard'] is Map
+          ? AgileBoard.fromJson(Map<String, dynamic>.from(settingsMap['agileBoard'] as Map))
+          : settings.agileBoard,
+      sidebarWidth: settings.sidebarWidth,
     );
 
     // Parse everything before touching the database, so a bad entry
@@ -418,6 +463,9 @@ class AppState extends ChangeNotifier {
           boardStatusIds: entry['boardStatuses'] is List
               ? (entry['boardStatuses'] as List).whereType<int>().toList()
               : null,
+          boardPrefs: entry['boardPrefs'] is Map
+              ? BoardPrefs.fromJson(Map<String, dynamic>.from(entry['boardPrefs'] as Map))
+              : const BoardPrefs(),
           scheduleWeekdays: entry['scheduleWeekdays'] is List
               ? List<int>.from((entry['scheduleWeekdays'] as List).map((e) => e as int))
               : defaultScheduleWeekdays,

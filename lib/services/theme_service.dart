@@ -22,6 +22,10 @@ class AppColors {
   static Color accentHover({required bool dark}) =>
       dark ? const Color(0xFF6CE2CD) : const Color(0xFF096A5C);
 
+  /// Selected text background (readable with the body text in both themes).
+  static Color selection({required bool dark}) =>
+      dark ? const Color(0xFF264F78) : const Color(0xFFB9DDF5);
+
   /// Selected nav item / unread icon box.
   static Color accentSoft({required bool dark}) =>
       dark ? const Color(0xFF213630) : const Color(0xFFE3F4F0);
@@ -310,6 +314,12 @@ ThemeData buildAppTheme({required bool dark}) {
       helperStyle: AppText.microLabel(dark: dark),
       prefixIconColor: muted,
       suffixIconColor: muted,
+    ),
+    // Solid, editor-like selection: the default translucent primary vanished on dark panels.
+    textSelectionTheme: TextSelectionThemeData(
+      selectionColor: AppColors.selection(dark: dark),
+      cursorColor: accent,
+      selectionHandleColor: accent,
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: ButtonStyle(

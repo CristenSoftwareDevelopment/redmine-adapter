@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -108,6 +111,63 @@ class UserAvatar extends StatelessWidget {
             color: Colors.white,
             fontSize: size * 0.4,
             fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// `#id` that copies the bare number on click (shows a ✓ for a moment). Its
+/// own tap wins over the card/row around it, which keeps opening or dragging.
+class IssueNumber extends StatefulWidget {
+  const IssueNumber(this.id, {super.key, this.style});
+
+  final int id;
+
+  /// Null = inherited [DefaultTextStyle].
+  final TextStyle? style;
+
+  @override
+  State<IssueNumber> createState() => _IssueNumberState();
+}
+
+class _IssueNumberState extends State<IssueNumber> {
+  Timer? _reset;
+
+  @override
+  void dispose() {
+    _reset?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: '${widget.id}'));
+    if (!mounted) return;
+    _reset?.cancel();
+    setState(() => _reset = Timer(const Duration(milliseconds: 1500), () {
+          if (mounted) setState(() => _reset = null);
+        }));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = DefaultTextStyle.of(context).style.merge(widget.style);
+    return Tooltip(
+      message: 'Copiar número',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: _copy,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('#${widget.id}', style: style),
+              if (_reset != null) ...[
+                const SizedBox(width: 3),
+                Icon(Icons.check, size: (style.fontSize ?? 14) * 0.95, color: style.color),
+              ],
+            ],
           ),
         ),
       ),

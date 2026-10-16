@@ -7,6 +7,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/alert_event.dart';
 import '../models/app_settings.dart';
+import '../models/claude_action.dart';
+import '../models/handoff_rule.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
 import '../models/team.dart';
@@ -229,6 +231,7 @@ class DatabaseService {
         for (final (table, column, definition) in const [
           ('queries', 'pinned', 'INTEGER NOT NULL DEFAULT 0'),
           ('queries', 'board_statuses', 'TEXT'),
+          ('queries', 'board_prefs', 'TEXT'),
           ('queries', 'alert_rules', 'TEXT'),
           ('queries', 'last_error', 'TEXT'),
           ('queries', 'last_error_at', 'TEXT'),
@@ -299,6 +302,7 @@ class DatabaseService {
         schedule_end_hour INTEGER NOT NULL DEFAULT 18,
         pinned INTEGER NOT NULL DEFAULT 0,
         board_statuses TEXT,
+        board_prefs TEXT,
         alert_rules TEXT,
         last_error TEXT,
         last_error_at TEXT
@@ -397,6 +401,12 @@ class DatabaseService {
       accountName: map['account_name']?.isEmpty == true
           ? null
           : map['account_name'],
+      handoffRules: HandoffRule.listFromJson(map['handoff_rules']),
+      claudeActions: ClaudeAction.listFromJson(map['claude_actions']),
+      agileBoard: map['agile_board'] == null
+          ? const AgileBoard()
+          : AgileBoard.fromJson(jsonDecode(map['agile_board']!) as Map<String, dynamic>),
+      sidebarWidth: double.tryParse(map['sidebar_width'] ?? '') ?? defaultSidebarWidth,
     );
   }
 
@@ -477,6 +487,26 @@ class DatabaseService {
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+      await txn.insert(
+        'settings',
+        {'key': 'handoff_rules', 'value': HandoffRule.listToJson(settings.handoffRules)},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
+        {'key': 'claude_actions', 'value': ClaudeAction.listToJson(settings.claudeActions)},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
+        {'key': 'agile_board', 'value': jsonEncode(settings.agileBoard.toJson())},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
+        {'key': 'sidebar_width', 'value': '${settings.sidebarWidth}'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     });
   }
 
@@ -504,7 +534,8 @@ class DatabaseService {
         ..remove('last_checked_at')
         ..remove('last_error')
         ..remove('last_error_at')
-        ..remove('board_statuses'),
+        ..remove('board_statuses')
+        ..remove('board_prefs'),
       where: 'id = ?',
       whereArgs: [query.id],
     );
@@ -545,6 +576,17 @@ class DatabaseService {
     await database.update(
       'queries',
       {'board_statuses': statusIds == null ? null : jsonEncode(statusIds)},
+      where: 'id = ?',
+      whereArgs: [queryId],
+    );
+  }
+
+  /// Board/list mode, filters and grouping of a pinned query.
+  Future<void> setBoardPrefs(int queryId, BoardPrefs prefs) async {
+    final database = await db;
+    await database.update(
+      'queries',
+      {'board_prefs': jsonEncode(prefs.toJson())},
       where: 'id = ?',
       whereArgs: [queryId],
     );

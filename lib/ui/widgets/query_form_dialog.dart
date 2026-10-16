@@ -81,7 +81,6 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
     const gap = SizedBox(height: 17);
 
     return AppDialog(
-      width: MediaQuery.sizeOf(context).width * 0.85,
       title: Text(widget.initial == null ? 'Nova consulta' : 'Editar consulta'),
       footer: [
         OutlinedButton(
@@ -430,34 +429,31 @@ class _QueryFormDialogState extends State<QueryFormDialog> {
         ),
       );
     }
-    return DropdownMenu<SavedQuery>(
-      initialSelection: _selected,
-      expandedInsets: EdgeInsets.zero,
-      enableFilter: true,
-      requestFocusOnTap: true,
-      menuHeight: 320,
-      label: const Text('Consulta salva no Redmine'),
-      hintText: 'Digite para buscar…',
-      errorText: _pickerError,
-      leadingIcon: const Icon(Icons.search, size: 18),
-      dropdownMenuEntries: [
-        for (final q in saved)
-          DropdownMenuEntry(
-            value: q,
-            label: q.label,
-            trailingIcon: q.isPublic
-                ? null
-                : const Tooltip(
-                    message: 'Consulta privada',
-                    child: Icon(Icons.lock_outline, size: 14),
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SearchSelect(
+          value: _selected?.id,
+          options: [
+            for (final q in saved) (q.id, q.isPublic ? q.label : '${q.label} (privada)'),
+          ],
+          hint: 'Consulta salva no Redmine…',
+          onChanged: (id) => setState(() {
+            _selected = saved.where((q) => q.id == id).firstOrNull;
+            _pickerError = null;
+            final q = _selected;
+            if (q != null && _name.text.trim().isEmpty) _name.text = q.name;
+          }),
+        ),
+        if (_pickerError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _pickerError!,
+              style: AppText.microLabel(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
+            ),
           ),
       ],
-      onSelected: (q) => setState(() {
-        _selected = q;
-        _pickerError = null;
-        if (q != null && _name.text.trim().isEmpty) _name.text = q.name;
-      }),
     );
   }
 

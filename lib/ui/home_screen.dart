@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../models/app_settings.dart';
+import '../models/monitored_query.dart';
 import '../state/app_state.dart';
 import '../services/theme_service.dart';
 import 'components.dart';
@@ -15,6 +17,9 @@ import 'widgets/alerts_card.dart';
 import 'widgets/logs_card.dart';
 import 'widgets/queries_card.dart';
 import 'widgets/settings_card.dart';
+
+const minSidebarWidth = 200.0;
+const maxSidebarWidth = 480.0;
 
 bool get _isDesktop =>
     !kIsWeb &&
@@ -38,6 +43,14 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
 
   /// User choice; null = automatic (collapsed on narrow windows).
   bool? _collapsed;
+
+  /// Sidebar width while its edge is being dragged (saved on release).
+  double? _dragWidth;
+
+  void _saveSidebarWidth(AppState state, double width) {
+    state.savePreferences(state.settings.copyWith(sidebarWidth: width));
+    setState(() => _dragWidth = null);
+  }
 
   @override
   void initState() {
@@ -104,7 +117,9 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
         final unreadAlerts = appState.alerts.where((a) => !a.isRead).length;
         final failedQueries = appState.queries.where((q) => q.lastError != null).length;
         final pinned = appState.queries.where((q) => q.pinned && q.id != null).toList();
-        final board = pinned.where((q) => q.id == _boardQueryId).firstOrNull;
+        final board = _boardQueryId == agileQueryId
+            ? appState.settings.agileBoard.toQuery()
+            : pinned.where((q) => q.id == _boardQueryId).firstOrNull;
         if (board == null) _boardQueryId = null; // board was unpinned or deleted
         final hasAccount = appState.settings.baseUrl.trim().isNotEmpty &&
             appState.settings.apiKey.trim().isNotEmpty;
@@ -112,131 +127,80 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
             ? appState.settings.accountName!.trim()
             : 'Conta conectada';
         final hPad = narrow ? 24.0 : 34.0;
+        final sidebarWidth = _dragWidth ?? appState.settings.sidebarWidth;
 
         return Scaffold(
           backgroundColor: AppColors.page(dark: dark),
           body: Row(
             children: [
               // ── Sidebar ──────────────────────────────────────────────
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                width: collapsed ? 75 : 240,
-                decoration: BoxDecoration(
-                  color: AppColors.sidebar(dark: dark),
-                  border: Border(right: BorderSide(color: AppColors.border(dark: dark))),
-                ),
-                padding: const EdgeInsets.fromLTRB(10, 24, 10, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _Brand(
-                      dark: dark,
-                      onToggle: () => setState(() => _collapsed = !collapsed),
+              Stack(
+                children: [
+                  AnimatedContainer(
+                    duration:
+                        _dragWidth == null ? const Duration(milliseconds: 180) : Duration.zero,
+                    curve: Curves.easeOut,
+                    width: collapsed ? 75 : sidebarWidth,
+                    decoration: BoxDecoration(
+                      color: AppColors.sidebar(dark: dark),
+                      border: Border(right: BorderSide(color: AppColors.border(dark: dark))),
                     ),
-                    const SizedBox(height: 22),
-                    Expanded(
-                      child: ListView(
-                        children: [
-                          _SectionLabel('Geral', dark: dark),
-                          _navItem(_Page.monitoring, Icons.podcasts, 'Monitoração', dark,
-                              count: unreadAlerts),
-                          _navItem(_Page.queries, Icons.search, 'Consultas', dark,
-                              count: failedQueries, countTone: TagTone.red),
-                          _navItem(_Page.teams, Icons.schedule, 'Tempo gasto', dark),
-                          if (pinned.isNotEmpty) _SectionLabel('Boards', dark: dark),
-                          for (final q in pinned)
-                            _NavItem(
-                              icon: Icons.view_kanban_outlined,
-                              label: q.name,
-                              selected: board?.id == q.id,
-                              dark: dark,
-                              count: q.lastError != null ? '!' : q.lastCount?.toString(),
-                              countTone: q.lastError != null ? TagTone.red : null,
-                              onTap: () => setState(() => _boardQueryId = q.id),
-                            ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.only(top: 14),
-                      decoration: BoxDecoration(
-                        border: Border(top: BorderSide(color: AppColors.border(dark: dark))),
-                      ),
-                      child: Column(
-                        children: [
-                          _navItem(_Page.settings, Icons.tune, 'Configuração', dark),
-                          _navItem(_Page.logs, Icons.receipt_long_outlined, 'Logs', dark),
-                          if (hasAccount)
-                            _NavItem(
-                              icon: Icons.logout,
-                              label: 'Sair',
-                              selected: false,
-                              dark: dark,
-                              onTap: () => _confirmSignOut(context),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── Main area ────────────────────────────────────────────
-              Expanded(
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1750),
+                    padding: const EdgeInsets.fromLTRB(10, 24, 10, 16),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(hPad, 28, hPad, 30),
-                          child: Row(
+                        _Brand(
+                          dark: dark,
+                          onToggle: () => setState(() => _collapsed = !collapsed),
+                        ),
+                        const SizedBox(height: 22),
+                        Expanded(
+                          child: ListView(
                             children: [
-                              Expanded(
-                                child: Text(
-                                  board == null
-                                      ? 'Workspace / $_pageTitle'
-                                      : 'Workspace / Boards / ${board.name}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppText.microLabel(dark: dark),
-                                ),
+                              _SectionLabel('Geral', dark: dark),
+                              _navItem(_Page.monitoring, Icons.podcasts, 'Monitoração', dark,
+                                  count: unreadAlerts),
+                              _navItem(_Page.queries, Icons.search, 'Consultas', dark,
+                                  count: failedQueries, countTone: TagTone.red),
+                              _navItem(_Page.teams, Icons.schedule, 'Tempo gasto', dark),
+                              _SectionLabel('Boards', dark: dark),
+                              // Built-in board, no saved query needed.
+                              _NavItem(
+                                icon: Icons.dashboard_customize_outlined,
+                                label: 'Ágil',
+                                selected: _boardQueryId == agileQueryId,
+                                dark: dark,
+                                onTap: () => setState(() => _boardQueryId = agileQueryId),
                               ),
-                              if (!appState.isProductionDatabase) ...[
-                                _DevTag(appState.databaseEnvironment, dark: dark),
-                                const SizedBox(width: 9),
-                              ],
-                              if (hasAccount) ...[
-                                _AccountAvatar(accountName, dark: dark),
-                                const SizedBox(width: 9),
-                                Text(accountName, style: AppText.microLabel(dark: dark)),
-                              ],
+                              for (final q in pinned)
+                                _NavItem(
+                                  icon: Icons.view_kanban_outlined,
+                                  label: q.name,
+                                  selected: board?.id == q.id,
+                                  dark: dark,
+                                  count: q.lastError != null ? '!' : q.lastCount?.toString(),
+                                  countTone: q.lastError != null ? TagTone.red : null,
+                                  onTap: () => setState(() => _boardQueryId = q.id),
+                                ),
                             ],
                           ),
                         ),
-                        Expanded(
-                          child: Stack(
+                        Container(
+                          padding: const EdgeInsets.only(top: 14),
+                          decoration: BoxDecoration(
+                            border: Border(top: BorderSide(color: AppColors.border(dark: dark))),
+                          ),
+                          child: Column(
                             children: [
-                              // Offstage keeps the pages' state while a board is open.
-                              Offstage(
-                                offstage: board != null,
-                                child: IndexedStack(
-                                  index: _page.index,
-                                  children: [
-                                    _Page.monitoring,
-                                    _Page.queries,
-                                    _Page.teams,
-                                    _Page.settings,
-                                    _Page.logs,
-                                  ].map((p) => _PageBody(page: p, hPad: hPad)).toList(),
-                                ),
-                              ),
-                              if (board != null)
-                                Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: hPad),
-                                  child: BoardView(key: ValueKey(board.id), query: board),
+                              _navItem(_Page.settings, Icons.tune, 'Configuração', dark),
+                              _navItem(_Page.logs, Icons.receipt_long_outlined, 'Logs', dark),
+                              if (hasAccount)
+                                _NavItem(
+                                  icon: Icons.logout,
+                                  label: 'Sair',
+                                  selected: false,
+                                  dark: dark,
+                                  onTap: () => _confirmSignOut(context),
                                 ),
                             ],
                           ),
@@ -244,6 +208,88 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                       ],
                     ),
                   ),
+                  // Drag the edge to resize (like Notion); double-click resets.
+                  if (!collapsed)
+                    Positioned(
+                      top: 0,
+                      bottom: 0,
+                      right: 0,
+                      width: 6,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.resizeColumn,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onHorizontalDragUpdate: (d) => setState(
+                            () => _dragWidth = ((_dragWidth ?? sidebarWidth) + d.delta.dx)
+                                .clamp(minSidebarWidth, maxSidebarWidth),
+                          ),
+                          onHorizontalDragEnd: (_) =>
+                              _saveSidebarWidth(appState, _dragWidth ?? sidebarWidth),
+                          onDoubleTap: () => _saveSidebarWidth(appState, defaultSidebarWidth),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+
+              // ── Main area ────────────────────────────────────────────
+              Expanded(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(hPad, 28, hPad, 30),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              board == null
+                                  ? 'Workspace / $_pageTitle'
+                                  : board.id == agileQueryId
+                                      ? 'Workspace / Ágil'
+                                      : 'Workspace / Boards / ${board.name}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.microLabel(dark: dark),
+                            ),
+                          ),
+                          if (!appState.isProductionDatabase) ...[
+                            _DevTag(appState.databaseEnvironment, dark: dark),
+                            const SizedBox(width: 9),
+                          ],
+                          if (hasAccount) ...[
+                            _AccountAvatar(accountName, dark: dark),
+                            const SizedBox(width: 9),
+                            Text(accountName, style: AppText.microLabel(dark: dark)),
+                          ],
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          // Offstage keeps the pages' state while a board is open.
+                          Offstage(
+                            offstage: board != null,
+                            child: IndexedStack(
+                              index: _page.index,
+                              children: [
+                                _Page.monitoring,
+                                _Page.queries,
+                                _Page.teams,
+                                _Page.settings,
+                                _Page.logs,
+                              ].map((p) => _PageBody(page: p, hPad: hPad)).toList(),
+                            ),
+                          ),
+                          if (board != null)
+                            Padding(
+                              padding: EdgeInsets.symmetric(horizontal: hPad),
+                              child: BoardView(key: ValueKey(board.id), query: board),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

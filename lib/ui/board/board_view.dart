@@ -40,16 +40,86 @@ class _BoardViewState extends State<BoardView> {
   /// Statuses that had issues this session: automatic columns never vanish.
   final Set<int> _seen = {};
 
-  bool _listMode = false;
+  /// Mode, filters and grouping; saved per board on every change.
+  late BoardPrefs _prefs = widget.query.boardPrefs;
   bool _moreFilters = false;
   final _searchCtl = TextEditingController();
   String _search = '';
-  int? _assigneeId; // null = everyone, 0 = unassigned
+
+  /// Projects for the "Ágil" board scope.
+  List<({int id, String name})>? _projects;
+
+  bool get _agile => widget.query.id == agileQueryId;
 
   @override
   void initState() {
     super.initState();
     _load();
+    if (_agile) {
+      _api.listProjects(context.read<AppState>().settings).then((p) {
+        if (mounted) setState(() => _projects = p);
+      }, onError: (Object _) {});
+    }
+  }
+
+  @override
+  void didUpdateWidget(BoardView old) {
+    super.didUpdateWidget(old);
+    // New scope ("Ágil") or an edited query URL.
+    if (old.query.endpoint != widget.query.endpoint) _load();
+  }
+
+  /// Saves a new scope for the "Ágil" board; the board reloads via [didUpdateWidget].
+  void _setScope(AgileBoard Function(AgileBoard) change) {
+    final state = context.read<AppState>();
+    state.savePreferences(
+      state.settings.copyWith(agileBoard: change(state.settings.agileBoard)),
+    );
+  }
+
+  /// "Ágil" scope: project, assignee and open/all, filtered by Redmine.
+  List<Widget> _scopeControls() {
+    final board = context.watch<AppState>().settings.agileBoard;
+    return [
+      SizedBox(
+        width: 260,
+        child: SearchSelect(
+          value: board.projectId,
+          options: [
+            for (final p in _projects ?? const <({int id, String name})>[]) (p.id, p.name),
+            // The saved project shows by name even before the list loads.
+            if (board.projectId != null &&
+                !(_projects ?? const []).any((p) => p.id == board.projectId))
+              (board.projectId!, board.projectName ?? '?'),
+          ],
+          none: 'Todos os projetos',
+          onChanged: (id) => _setScope(
+            (b) => b.copyWith(
+              projectId: id,
+              projectName: _projects?.where((p) => p.id == id).firstOrNull?.name,
+            ),
+          ),
+        ),
+      ),
+      SelectBox<bool>(
+        value: board.mine,
+        minWidth: 170,
+        items: const [
+          DropdownMenuItem(value: true, child: Text('Minhas tarefas')),
+          DropdownMenuItem(value: false, child: Text('Qualquer responsável')),
+        ],
+        onChanged: (v) => _setScope((b) => b.copyWith(mine: v)),
+      ),
+      SelectBox<bool>(
+        value: board.openOnly,
+        minWidth: 150,
+        items: const [
+          DropdownMenuItem(value: true, child: Text('Abertas')),
+          DropdownMenuItem(value: false, child: Text('Todas as situações')),
+        ],
+        onChanged: (v) => _setScope((b) => b.copyWith(openOnly: v)),
+      ),
+    ];
   }
 
   @override
@@ -108,11 +178,7 @@ class _BoardViewState extends State<BoardView> {
 
     String? problem;
     try {
-      await _api.putJson(settings, '/issues/${issue.id}.json', {
-        'issue': {'status_id': targetId},
-      });
-      final fresh = await _api.getJson(settings, '/issues/${issue.id}.json');
-      if (fresh['issue']['status']['id'] != targetId) {
+      if (!await _api.setIssueStatus(settings, issue.id, targetId)) {
         problem = 'O Redmine não aplicou a mudança de #${issue.id}: '
             'transição não permitida pelo workflow ou sem permissão.';
       }
@@ -131,14 +197,34 @@ class _BoardViewState extends State<BoardView> {
     if (problem == null) unawaited(_load());
   }
 
+  void _savePrefs(BoardPrefs prefs) {
+    setState(() => _prefs = prefs);
+    context.read<AppState>().setBoardPrefs(widget.query, prefs);
+  }
+
+  void _setFilter(String key, List<int> ids) => _savePrefs(
+        _prefs.copyWith(filters: {..._prefs.filters, key: ids}..removeWhere((_, v) => v.isEmpty)),
+      );
+
   List<RedmineIssue> get _visible {
     final q = searchKey(_search.trim()).replaceFirst('#', '');
     return [
       for (final i in _issues ?? const <RedmineIssue>[])
-        if ((_assigneeId == null || (i.assigneeId ?? 0) == _assigneeId) &&
+        if (matchesBoardFilters(i, _prefs.filters) &&
             (q.isEmpty || searchKey(i.subject).contains(q) || '${i.id}'.startsWith(q)))
           i,
     ];
+  }
+
+  /// Values of [key] among the loaded issues (+ saved filter ids no longer
+  /// present, so they can be unchecked), in display order.
+  List<(int, String)> _valuesOf(String key, String missing) {
+    final names = <int, String>{
+      for (final id in _prefs.filters[key] ?? const <int>[]) id: id == 0 ? missing : '#$id',
+      for (final i in _issues ?? const <RedmineIssue>[])
+        i.refId(key) ?? 0: i.nameOf(key) ?? missing,
+    };
+    return [for (final e in names.entries) (e.key, e.value)]..sort(compareRefs);
   }
 
   Set<int> get _closedStatusIds => {
@@ -160,25 +246,24 @@ class _BoardViewState extends State<BoardView> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final visible = _visible;
     final columnIds = _columnIds;
-    final hidden = _listMode ? 0 : visible.where((i) => !columnIds.contains(i.statusId)).length;
+    final listMode = _prefs.listMode;
+    final hidden = listMode ? 0 : visible.where((i) => !columnIds.contains(i.statusId)).length;
     final count = visible.length - hidden;
-    final assignees = <int, String>{
-      for (final i in _issues ?? const <RedmineIssue>[])
-        if (i.assigneeId != null) i.assigneeId!: i.assigneeName ?? '?',
-    };
-    final sortedAssignees = assignees.entries.toList()
-      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+    final fieldValues = {for (final f in boardFields) f.key: _valuesOf(f.key, f.missing)};
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageHeader(
           title: widget.query.name,
-          subtitle: 'Explore as tarefas da consulta e encontre o que precisa.',
-          actions: [if (!_listMode) _columnsMenu(columnIds)],
+          subtitle: _agile
+              ? 'Escolha o escopo e explore as tarefas, sem precisar de consulta salva.'
+              : 'Explore as tarefas da consulta e encontre o que precisa.',
+          actions: [if (!listMode) _columnsMenu(columnIds)],
         ),
         FiltersPanel(
           controls: [
+            if (_agile) ..._scopeControls(),
             SearchField(
               controller: _searchCtl,
               hint: 'Buscar tarefa pelo título ou #id…',
@@ -189,8 +274,19 @@ class _BoardViewState extends State<BoardView> {
                 (false, 'Board', Icons.view_kanban_outlined),
                 (true, 'Lista', Icons.view_list_outlined),
               ],
-              selected: _listMode,
-              onChanged: (v) => setState(() => _listMode = v),
+              selected: listMode,
+              onChanged: (v) => _savePrefs(_prefs.copyWith(listMode: v)),
+            ),
+            SelectBox<String?>(
+              value: _prefs.groupBy,
+              minWidth: 170,
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Sem agrupamento')),
+                for (final f in boardFields)
+                  if (f.key != 'status')
+                    DropdownMenuItem(value: f.key, child: Text('Agrupar por ${f.label}')),
+              ],
+              onChanged: (v) => _savePrefs(_prefs.copyWith(groupBy: v)),
             ),
           ],
           actions: [
@@ -212,35 +308,31 @@ class _BoardViewState extends State<BoardView> {
           extra: !_moreFilters
               ? null
               : [
-                  LabeledField(
-                    label: 'Responsável',
-                    child: SelectBox<int?>(
-                      value: _assigneeId,
-                      items: [
-                        const DropdownMenuItem(value: null, child: Text('Todos os responsáveis')),
-                        const DropdownMenuItem(value: 0, child: Text('Sem responsável')),
-                        for (final a in sortedAssignees)
-                          DropdownMenuItem(value: a.key, child: Text(a.value)),
-                      ],
-                      onChanged: (v) => setState(() => _assigneeId = v),
-                    ),
-                  ),
+                  for (final f in boardFields)
+                    // A field with a single value filters nothing (e.g. one project).
+                    if (fieldValues[f.key]!.length > 1)
+                      _filterMenu(f.key, f.label, fieldValues[f.key]!),
                 ],
           summary: FilterSummary(
             text: [
               '$count tarefa${count == 1 ? '' : 's'}',
               if (hidden > 0) '$hidden em colunas ocultas',
+              // getAllPages stops at 500.
+              if ((_issues?.length ?? 0) >= 500) 'mostrando as primeiras 500, refine o escopo',
             ].join(' · '),
             chips: [
-              if (_assigneeId != null)
-                _assigneeId == 0 ? 'Sem responsável' : (assignees[_assigneeId] ?? ''),
+              for (final f in boardFields)
+                if (_prefs.filters[f.key] case final ids?)
+                  '${f.label}: ${_names(fieldValues[f.key]!, ids)}',
               if (_search.trim().isNotEmpty) 'Busca: ${_search.trim()}',
             ],
-            onClear: () => setState(() {
-              _assigneeId = null;
-              _search = '';
-              _searchCtl.clear();
-            }),
+            onClear: () {
+              setState(() {
+                _search = '';
+                _searchCtl.clear();
+              });
+              if (_prefs.filters.isNotEmpty) _savePrefs(_prefs.copyWith(filters: const {}));
+            },
           ),
         ),
         if (_loading)
@@ -272,9 +364,11 @@ class _BoardViewState extends State<BoardView> {
               ? (_error == null
                   ? const Center(child: CircularProgressIndicator())
                   : const SizedBox())
-              : _listMode
+              : listMode
                   ? _list(visible, dark)
-                  : _board(visible, dark),
+                  : _prefs.groupBy == null
+                      ? _board(visible, dark)
+                      : _lanes(visible, dark),
         ),
       ],
     );
@@ -313,60 +407,211 @@ class _BoardViewState extends State<BoardView> {
     );
   }
 
-  // ── Board ──────────────────────────────────────────────────────────────────
+  String _names(List<(int, String)> values, List<int> ids) => [
+        for (final (id, name) in values)
+          if (ids.contains(id)) name
+      ].join(', ');
 
-  Widget _board(List<RedmineIssue> visible, bool dark) {
-    final names = {
-      for (final i in visible) i.statusId: i.statusName,
-      for (final s in _statuses) s['id'] as int: '${s['name']}',
-    };
-    final columns = [
-      for (final id in _columnIds) {'id': id, 'name': names[id] ?? '#$id'},
-    ];
-    final closed = _closedStatusIds;
-    final multiProject = visible.map((i) => i.projectName).toSet().length > 1;
-
-    return Scrollbar(
-      controller: _hScroll,
-      thumbVisibility: true,
-      child: ListView(
-        controller: _hScroll,
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.only(bottom: 15),
-        children: [
-          for (final status in columns)
-            _column(
-              status,
-              [
-                for (final i in visible)
-                  if (i.statusId == status['id']) i,
-              ],
-              closed,
-              multiProject,
-              dark,
+  /// Multiselect of one issue field; nothing checked = every value.
+  Widget _filterMenu(String key, String label, List<(int, String)> values) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final selected = _prefs.filters[key] ?? const <int>[];
+    return LabeledField(
+      label: label,
+      child: MenuAnchor(
+        menuChildren: [
+          for (final (id, name) in values)
+            CheckboxMenuButton(
+              value: selected.contains(id),
+              closeOnActivate: false,
+              onChanged: (checked) => _setFilter(
+                key,
+                checked == true ? [...selected, id] : selected.where((v) => v != id).toList(),
+              ),
+              child: Text(name),
             ),
+          if (selected.isNotEmpty) ...[
+            const Divider(height: 1),
+            MenuItemButton(onPressed: () => _setFilter(key, const []), child: const Text('Todos')),
+          ],
         ],
+        builder: (context, controller, _) => ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 170, maxWidth: 280),
+          child: ControlBox(
+            onTap: () => controller.isOpen ? controller.close() : controller.open(),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    selected.isEmpty ? 'Todos' : _names(values, selected),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(dark: dark),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(Icons.arrow_drop_down, color: AppColors.mutedText(dark: dark)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
+  // ── Board ──────────────────────────────────────────────────────────────────
+
+  List<Map<String, dynamic>> _columns(List<RedmineIssue> visible) {
+    final names = {
+      for (final i in visible) i.statusId: i.statusName,
+      for (final s in _statuses) s['id'] as int: '${s['name']}',
+    };
+    return [
+      for (final id in _columnIds) {'id': id, 'name': names[id] ?? '#$id'},
+    ];
+  }
+
+  Widget _board(List<RedmineIssue> visible, bool dark) {
+    final closed = _closedStatusIds;
+    final multiProject = visible.map((i) => i.projectName).toSet().length > 1;
+
+    final columns = _columns(visible);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = boardColumnWidth(constraints.maxWidth, columns.length);
+        return Scrollbar(
+          controller: _hScroll,
+          thumbVisibility: true,
+          child: ListView(
+            controller: _hScroll,
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.only(bottom: 15),
+            children: [
+              for (final status in columns)
+                _column(
+                  status,
+                  [
+                    for (final i in visible)
+                      if (i.statusId == status['id']) i,
+                  ],
+                  closed,
+                  multiProject,
+                  dark,
+                  width: width,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// One lane per value of the grouped field, each with the status columns.
+  /// Lanes share one horizontal scroll so the columns stay aligned.
+  Widget _lanes(List<RedmineIssue> visible, bool dark) {
+    final key = _prefs.groupBy!;
+    final missing = boardFields.where((f) => f.key == key).firstOrNull?.missing ?? '-';
+    final columns = _columns(visible);
+    final closed = _closedStatusIds;
+    final multiProject = visible.map((i) => i.projectName).toSet().length > 1;
+
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = boardColumnWidth(constraints.maxWidth, columns.length);
+      return Scrollbar(
+        controller: _hScroll,
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+          controller: _hScroll,
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.only(bottom: 15),
+          child: SizedBox(
+            width: max(columns.length * (width + 14), 300),
+            child: ListView(
+              children: [
+                for (final group in groupIssues(visible, key, missing)) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(2, 4, 2, 10),
+                    child: Row(
+                      children: [
+                        Text(group.name, style: AppText.bodySemibold(dark: dark)),
+                        const SizedBox(width: 8),
+                        Tag('${group.issues.length}'),
+                      ],
+                    ),
+                  ),
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final status in columns)
+                          _column(
+                            status,
+                            [
+                              for (final i in group.issues)
+                                if (i.statusId == status['id']) i,
+                            ],
+                            closed,
+                            multiProject,
+                            dark,
+                            width: width,
+                            lane: group.id,
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  /// Status column. Inside a [lane] it grows with its cards and only accepts
+  /// cards of the same lane (a drop changes the status, not the grouped field).
   Widget _column(
     Map<String, dynamic> status,
     List<RedmineIssue> issues,
     Set<int> closed,
     bool multiProject,
-    bool dark,
-  ) {
+    bool dark, {
+    required double width,
+    int? lane,
+  }) {
     final id = status['id'] as int;
     final name = '${status['name']}';
     final (_, dotColor) = AppColors.tone(Tag.hashed(name).tone, dark: dark);
+    final Widget cards = issues.isEmpty
+        ? Padding(
+            padding: const EdgeInsets.symmetric(vertical: 22),
+            child: Text(
+              'Nenhuma tarefa',
+              textAlign: TextAlign.center,
+              style: AppText.microLabel(dark: dark),
+            ),
+          )
+        : lane != null
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [for (final i in issues) _card(i, closed, multiProject, dark, width)],
+              )
+            : ListView.builder(
+                itemCount: issues.length,
+                itemBuilder: (context, index) =>
+                    _card(issues[index], closed, multiProject, dark, width),
+              );
     return Container(
       // Keys keep the dragged card mounted when columns change mid-drag.
       key: ValueKey(id),
-      width: 270,
+      width: width,
       margin: const EdgeInsets.only(right: 14),
       child: DragTarget<RedmineIssue>(
-        onWillAcceptWithDetails: (d) => d.data.statusId != id,
+        onWillAcceptWithDetails: (d) =>
+            d.data.statusId != id && (lane == null || (d.data.refId(_prefs.groupBy!) ?? 0) == lane),
         onAcceptWithDetails: (d) => _move(d.data, status),
         builder: (context, candidates, _) => Container(
           padding: const EdgeInsets.all(12),
@@ -414,52 +659,39 @@ class _BoardViewState extends State<BoardView> {
                   ],
                 ),
               ),
-              Expanded(
-                child: issues.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 22),
-                        child: Text(
-                          'Nenhuma tarefa',
-                          textAlign: TextAlign.center,
-                          style: AppText.microLabel(dark: dark),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: issues.length,
-                        itemBuilder: (context, index) {
-                          final issue = issues[index];
-                          final card = _IssueCard(
-                            issue: issue,
-                            priority: _priorityIcon(issue),
-                            closed: closed.contains(issue.statusId),
-                            showProject: multiProject,
-                            busy: _moving.contains(issue.id),
-                            dark: dark,
-                            onTap: () => showIssueDetail(context, issue),
-                          );
-                          return Padding(
-                            key: ValueKey(issue.id),
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: Draggable<RedmineIssue>(
-                              data: issue,
-                              maxSimultaneousDrags: _moving.contains(issue.id) ? 0 : 1,
-                              feedback: Material(
-                                color: Colors.transparent,
-                                child: SizedBox(
-                                  width: 246,
-                                  child: Transform.rotate(angle: 0.03, child: card),
-                                ),
-                              ),
-                              childWhenDragging: Opacity(opacity: 0.35, child: card),
-                              child: card,
-                            ),
-                          );
-                        },
-                      ),
-              ),
+              if (lane == null) Expanded(child: cards) else cards,
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _card(RedmineIssue issue, Set<int> closed, bool multiProject, bool dark, double width) {
+    final card = _IssueCard(
+      issue: issue,
+      priority: _priorityIcon(issue),
+      closed: closed.contains(issue.statusId),
+      showProject: multiProject,
+      busy: _moving.contains(issue.id),
+      dark: dark,
+      onTap: () => showIssueDetail(context, issue),
+    );
+    return Padding(
+      key: ValueKey(issue.id),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Draggable<RedmineIssue>(
+        data: issue,
+        maxSimultaneousDrags: _moving.contains(issue.id) ? 0 : 1,
+        feedback: Material(
+          color: Colors.transparent,
+          child: SizedBox(
+            width: width - 24,
+            child: Transform.rotate(angle: 0.03, child: card),
+          ),
+        ),
+        childWhenDragging: Opacity(opacity: 0.35, child: card),
+        child: card,
       ),
     );
   }
@@ -502,8 +734,19 @@ class _BoardViewState extends State<BoardView> {
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                 child: Row(children: cells),
               );
+          // Grouped: a header row before each group's issues.
+          final key = _prefs.groupBy;
+          final missing = boardFields.where((f) => f.key == key).firstOrNull?.missing ?? '-';
+          final List<Object> items = key == null
+              ? visible
+              : [
+                  for (final g in groupIssues(visible, key, missing)) ...[
+                    '${g.name}  ·  ${g.issues.length}',
+                    ...g.issues,
+                  ],
+                ];
           return ListView.builder(
-            itemCount: visible.length + 1,
+            itemCount: items.length + 1,
             itemBuilder: (context, index) {
               if (index == 0) {
                 return row(
@@ -518,7 +761,15 @@ class _BoardViewState extends State<BoardView> {
                   color: AppColors.sunken(dark: dark),
                 );
               }
-              final issue = visible[index - 1];
+              final item = items[index - 1];
+              if (item is String) {
+                return Container(
+                  color: AppColors.column(dark: dark),
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+                  child: Text(item, style: AppText.bodySemibold(dark: dark)),
+                );
+              }
+              final issue = item as RedmineIssue;
               return InkWell(
                 onTap: () => showIssueDetail(context, issue),
                 hoverColor: AppColors.cellHover(dark: dark),
@@ -529,8 +780,8 @@ class _BoardViewState extends State<BoardView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            '#${issue.id}',
+                          IssueNumber(
+                            issue.id,
                             style: AppText.microLabel(dark: dark).copyWith(
                               color: AppColors.accent(dark: dark),
                               decoration: closed.contains(issue.statusId)
@@ -550,7 +801,31 @@ class _BoardViewState extends State<BoardView> {
                     ),
                     SizedBox(
                       width: 170,
-                      child: Align(alignment: Alignment.centerLeft, child: Tag(issue.statusName)),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        // Same path as dragging a card on the board.
+                        child: PopupMenuButton<Map<String, dynamic>>(
+                          tooltip: 'Alterar situação',
+                          enabled: !_moving.contains(issue.id),
+                          onSelected: (status) => _move(issue, status),
+                          itemBuilder: (_) => [
+                            for (final s in _statuses)
+                              if (s['id'] != issue.statusId)
+                                PopupMenuItem(value: s, child: Text('${s['name']}')),
+                          ],
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(child: Tag(issue.statusName)),
+                              Icon(
+                                Icons.arrow_drop_down,
+                                size: 18,
+                                color: AppColors.mutedText(dark: dark),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                     SizedBox(
                       width: 190,
@@ -677,8 +952,8 @@ class _IssueCard extends StatelessWidget {
                   children: [
                     priority,
                     const SizedBox(width: 5),
-                    Text(
-                      '#${issue.id}',
+                    IssueNumber(
+                      issue.id,
                       style: AppText.microLabel(dark: dark).copyWith(
                         fontSize: 11,
                         decoration: closed ? TextDecoration.lineThrough : null,
@@ -702,6 +977,61 @@ class _IssueCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Status columns stretch to fill [available] width (270–480 each, plus a
+/// 14 px right margin); below 270 the board scrolls sideways.
+double boardColumnWidth(double available, int columns) =>
+    columns == 0 ? 270 : (available / columns - 14).clamp(270, 480);
+
+/// Issue references the board can filter and group by.
+const boardFields = [
+  (key: 'fixed_version', label: 'Versão', missing: 'Sem versão'),
+  (key: 'tracker', label: 'Tipo', missing: 'Sem tipo'),
+  (key: 'status', label: 'Situação', missing: 'Sem situação'),
+  (key: 'assigned_to', label: 'Responsável', missing: 'Sem responsável'),
+  (key: 'author', label: 'Autor', missing: 'Sem autor'),
+  (key: 'priority', label: 'Prioridade', missing: 'Sem prioridade'),
+  (key: 'project', label: 'Projeto', missing: 'Sem projeto'),
+  (key: 'category', label: 'Categoria', missing: 'Sem categoria'),
+];
+
+/// Every filtered field must match (empty list = any value); an issue
+/// without the reference counts as id 0.
+bool matchesBoardFilters(RedmineIssue issue, Map<String, List<int>> filters) =>
+    filters.entries.every((f) => f.value.isEmpty || f.value.contains(issue.refId(f.key) ?? 0));
+
+/// Case-insensitive, with digit runs compared as numbers: 3.79 < 3.80 < 3.100.
+int compareNatural(String a, String b) {
+  final chunk = RegExp(r'\d+|\D+');
+  final pa = chunk.allMatches(a.toLowerCase()).map((m) => m[0]!).toList();
+  final pb = chunk.allMatches(b.toLowerCase()).map((m) => m[0]!).toList();
+  for (var i = 0; i < min(pa.length, pb.length); i++) {
+    final na = int.tryParse(pa[i]), nb = int.tryParse(pb[i]);
+    final c = na != null && nb != null ? na.compareTo(nb) : pa[i].compareTo(pb[i]);
+    if (c != 0) return c;
+  }
+  return pa.length.compareTo(pb.length);
+}
+
+/// Natural name order, with the "missing" value (id 0) last.
+int compareRefs((int, String) a, (int, String) b) =>
+    a.$1 == 0 ? (b.$1 == 0 ? 0 : 1) : (b.$1 == 0 ? -1 : compareNatural(a.$2, b.$2));
+
+/// [issues] split by the [key] reference, groups in [compareRefs] order.
+List<({int id, String name, List<RedmineIssue> issues})> groupIssues(
+  List<RedmineIssue> issues,
+  String key,
+  String missing,
+) {
+  final groups = <(int, String), List<RedmineIssue>>{};
+  for (final i in issues) {
+    (groups[(i.refId(key) ?? 0, i.nameOf(key) ?? missing)] ??= []).add(i);
+  }
+  return [
+    for (final ref in groups.keys.toList()..sort(compareRefs))
+      (id: ref.$1, name: ref.$2, issues: groups[ref]!),
+  ];
 }
 
 /// Status ids shown as board columns, in Redmine's status order.

@@ -5,8 +5,10 @@
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show SelectedContent;
 
 import '../services/theme_service.dart';
+import 'ui_utils.dart';
 
 bool _isDark(BuildContext context) => Theme.of(context).brightness == Brightness.dark;
 
@@ -341,6 +343,220 @@ class SelectBox<T> extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Select with its own search box: the 40px field shows the choice; a click
+/// opens a list with an empty search field (accent/case-insensitive). [none]
+/// is the "nothing / keep" entry, mapped to null; without it, [hint] shows
+/// until something is picked. The value is controlled: it's read on every build.
+class SearchSelect extends StatefulWidget {
+  const SearchSelect({
+    super.key,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+    this.none,
+    this.hint = 'Selecione…',
+  });
+
+  final int? value;
+  final List<(int, String)> options;
+  final ValueChanged<int?> onChanged;
+  final String? none;
+  final String hint;
+
+  @override
+  State<SearchSelect> createState() => _SearchSelectState();
+}
+
+class _SearchSelectState extends State<SearchSelect> {
+  final _menu = MenuController();
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  /// (value, label) entries; a saved id no longer listed still shows as `#id`.
+  List<(int?, String)> get _entries {
+    final v = widget.value;
+    return [
+      if (widget.none != null) (null, widget.none!),
+      for (final (id, label) in widget.options) (id, label),
+      if (v != null && !widget.options.any((o) => o.$1 == v)) (v, '#$v'),
+    ];
+  }
+
+  void _pick(int? value) {
+    _menu.close();
+    if (value != widget.value) widget.onChanged(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    final entries = _entries;
+    final current = entries.where((e) => e.$1 == widget.value).firstOrNull;
+    final q = searchKey(_search.text.trim());
+    final shown = [
+      for (final e in entries)
+        if (q.isEmpty || searchKey(e.$2).contains(q)) e,
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite ? constraints.maxWidth : 260.0;
+        return MenuAnchor(
+          controller: _menu,
+          // Every opening starts with an empty search.
+          onOpen: () => setState(_search.clear),
+          style: MenuStyle(
+            minimumSize: WidgetStatePropertyAll(Size(width, 0)),
+            maximumSize: WidgetStatePropertyAll(Size(width, 400)),
+          ),
+          menuChildren: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+              child: SizedBox(
+                width: width - 16,
+                child: TextField(
+                  controller: _search,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'Buscar…',
+                    isDense: true,
+                    prefixIcon: Icon(Icons.search, size: 17),
+                    prefixIconConstraints: BoxConstraints(minWidth: 36, minHeight: controlHeight),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                    constraints: BoxConstraints.tightFor(height: controlHeight),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  // Enter takes the first match.
+                  onSubmitted: (_) {
+                    if (shown.isNotEmpty) _pick(shown.first.$1);
+                  },
+                ),
+              ),
+            ),
+            if (shown.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                child: Text('Nada encontrado.', style: AppText.captionLight(dark: dark)),
+              )
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 300),
+                // The menu panel has its own scroll view; this list keeps a separate one.
+                child: SingleChildScrollView(
+                  primary: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (value, label) in shown)
+                        MenuItemButton(
+                          onPressed: () => _pick(value),
+                          leadingIcon: SizedBox(
+                            width: 18,
+                            child: value == widget.value
+                                ? Icon(Icons.check, size: 16, color: AppColors.accent(dark: dark))
+                                : null,
+                          ),
+                          child: SizedBox(
+                            width: width - 64,
+                            child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+          builder: (context, controller, _) => SizedBox(
+            width: width,
+            child: ControlBox(
+              onTap: () => controller.isOpen ? controller.close() : controller.open(),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      current?.$2 ?? widget.hint,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: current == null
+                          ? AppText.captionLight(dark: dark)
+                          : AppText.body(dark: dark),
+                    ),
+                  ),
+                  Icon(Icons.arrow_drop_down, color: AppColors.mutedText(dark: dark)),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// [SelectionArea] whose copied pieces are joined like a browser does (see
+/// [LineBreakSelection]). Put it around content without its own scroll view; for
+/// scrolling content use `SelectionArea(child: scrollView(child: LineBreakSelection(…)))`
+/// so dragging still auto-scrolls.
+class PageSelectionArea extends StatelessWidget {
+  const PageSelectionArea({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => SelectionArea(child: LineBreakSelection(child: child));
+}
+
+/// Groups text blocks (e.g. a markdown body) for selection: copied blocks on
+/// different lines are joined with a line break, and pieces on the same line
+/// with a space, as a browser does. A bare [SelectionArea] glues them together.
+/// Needs a [SelectionArea] above it.
+class LineBreakSelection extends StatefulWidget {
+  const LineBreakSelection({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<LineBreakSelection> createState() => _LineBreakSelectionState();
+}
+
+class _LineBreakSelectionState extends State<LineBreakSelection> {
+  final _delegate = _LineBreakSelectionDelegate();
+
+  @override
+  void dispose() {
+    _delegate.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      SelectionContainer(delegate: _delegate, child: widget.child);
+}
+
+class _LineBreakSelectionDelegate extends StaticSelectionContainerDelegate {
+  @override
+  SelectedContent? getSelectedContent() {
+    final buffer = StringBuffer();
+    Rect? previous;
+    for (final selectable in selectables) {
+      final content = selectable.getSelectedContent();
+      if (content == null || content.plainText.isEmpty) continue;
+      final rect =
+          MatrixUtils.transformRect(selectable.getTransformTo(null), Offset.zero & selectable.size);
+      if (previous != null) buffer.write(rect.top >= previous.bottom - 1 ? '\n' : ' ');
+      buffer.write(content.plainText);
+      previous = rect;
+    }
+    return previous == null ? null : SelectedContent(plainText: buffer.toString());
   }
 }
 
@@ -835,7 +1051,7 @@ class AppDialog extends StatelessWidget {
     required this.body,
     this.footer = const [],
     this.headActions = const [],
-    this.width = 610,
+    this.width,
     this.bodyPadding = const EdgeInsets.all(22),
     this.scrollable = true,
   });
@@ -844,7 +1060,9 @@ class AppDialog extends StatelessWidget {
   final Widget body;
   final List<Widget> footer;
   final List<Widget> headActions;
-  final double width;
+
+  /// Null = 85% of the window (forms); small yes/no confirmations pass 460.
+  final double? width;
   final EdgeInsetsGeometry bodyPadding;
 
   /// False when [body] manages its own scrolling.
@@ -859,7 +1077,7 @@ class AppDialog extends StatelessWidget {
       elevation: 0,
       insetPadding: const EdgeInsets.all(15),
       child: Container(
-        width: width,
+        width: width ?? MediaQuery.sizeOf(context).width * 0.85,
         constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.9),
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
@@ -885,7 +1103,21 @@ class AppDialog extends StatelessWidget {
                       child: title,
                     ),
                   ),
-                  for (final a in headActions) ...[a, const SizedBox(width: 8)],
+                  // Wraps instead of overflowing when there are many actions.
+                  if (headActions.isNotEmpty)
+                    // Tight, so the close button stays at the right edge.
+                    Expanded(
+                      flex: 2,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Wrap(
+                          alignment: WrapAlignment.end,
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: headActions,
+                        ),
+                      ),
+                    ),
                   IconBtn(
                     icon: Icons.close,
                     tooltip: 'Fechar',

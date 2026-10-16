@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/app_settings.dart';
 import '../models/monitored_query.dart';
+import '../models/team.dart';
 
 class RedmineApiService {
   static const Duration _requestTimeout = Duration(seconds: 60);
@@ -80,6 +81,64 @@ class RedmineApiService {
     _ensureOk(response);
   }
 
+  /// Moves an issue to [statusId], sending [extra] fields (notes, assignee…)
+  /// in the same update. Redmine answers 204 even when the workflow drops the
+  /// status change, so the issue is read again: false = status not applied.
+  Future<bool> setIssueStatus(
+    AppSettings settings,
+    int issueId,
+    int statusId, {
+    Map<String, dynamic> extra = const {},
+  }) async {
+    await putJson(settings, '/issues/$issueId.json', {
+      'issue': {...extra, 'status_id': statusId},
+    });
+    final fresh = await getJson(settings, '/issues/$issueId.json');
+    return fresh['issue']['status']['id'] == statusId;
+  }
+
+  /// Recent downloads, so thumbnails don't fetch again on every rebuild.
+  // ponytail: last 40 URLs kept in memory; size-based eviction if previews get heavy.
+  static final _bytesCache = <String, Future<({Uint8List bytes, String? contentType})>>{};
+
+  /// Downloads an attachment (or any file) of the configured Redmine with the
+  /// API key. The key never goes to another host: such URLs throw.
+  Future<({Uint8List bytes, String? contentType})> getBytes(AppSettings settings, String url) {
+    final uri = Uri.parse(absoluteUrl(settings.baseUrl, url));
+    if (uri.host != Uri.parse(settings.baseUrl).host) {
+      throw ArgumentError('Fora do Redmine configurado: ${uri.host}');
+    }
+    final key = uri.toString();
+    final cached = _bytesCache.remove(key);
+    if (cached != null) return _bytesCache[key] = cached; // most recent last
+    if (_bytesCache.length >= 40) _bytesCache.remove(_bytesCache.keys.first);
+    final future = _send(settings.apiKey, uri).then((response) {
+      _ensureOk(response);
+      return (bytes: response.bodyBytes, contentType: response.headers['content-type']);
+    });
+    // A failed download is not cached, so it can be retried.
+    future.catchError((Object _) {
+      _bytesCache.remove(key);
+      return (bytes: Uint8List(0), contentType: null);
+    });
+    return _bytesCache[key] = future;
+  }
+
+  /// POST a JSON [body] to [path] (e.g. a new time entry; Redmine answers 201).
+  Future<void> postJson(
+    AppSettings settings,
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _send(
+      settings.apiKey,
+      Uri.parse(absoluteUrl(settings.baseUrl, path)),
+      method: 'POST',
+      body: body,
+    );
+    _ensureOk(response);
+  }
+
   /// Fetches every page of a paginated collection ([key] is the JSON list key,
   /// e.g. `issues`, `time_entries`).
   // ponytail: capped at [cap] items; raise it if boards/reports need more.
@@ -104,6 +163,42 @@ class RedmineApiService {
       if (batch.isEmpty || items.length >= total) break;
     }
     return items;
+  }
+
+  /// `{id, name}` items of a small, unpaginated list such as
+  /// `/issue_statuses.json` (`issue_statuses`), in Redmine's order.
+  Future<List<(int, String)>> listNamed(AppSettings settings, String path, String key) async {
+    final json = await getJson(settings, path);
+    return [for (final i in (json[key] as List).cast<Map>()) (i['id'] as int, '${i['name']}')];
+  }
+
+  /// Projects visible to the user, sorted by name.
+  Future<List<({int id, String name})>> listProjects(AppSettings settings) async {
+    final projects = await getAllPages(settings, '/projects.json', 'projects', cap: 2000);
+    return [
+      for (final p in projects) (id: p['id'] as int, name: p['name'] as String? ?? '?'),
+    ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  }
+
+  /// Users of a project via memberships (works for any member, no admin
+  /// needed), sorted by name. Group memberships have `group` instead of `user`: skipped.
+  Future<List<TeamMember>> listProjectMembers(AppSettings settings, int projectId) async {
+    final memberships = await getAllPages(
+      settings,
+      '/projects/$projectId/memberships.json',
+      'memberships',
+      cap: 2000,
+    );
+    final byId = <int, TeamMember>{
+      for (final m in memberships)
+        if (m['user'] is Map)
+          (m['user'] as Map)['id'] as int: TeamMember(
+            id: (m['user'] as Map)['id'] as int,
+            name: (m['user'] as Map)['name'] as String? ?? '?',
+          ),
+    };
+    return byId.values.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
 
   /// Saved issue queries visible to the user, labelled with their project.
@@ -250,13 +345,12 @@ class RedmineApiService {
           'Accept': 'application/json',
           'X-Redmine-API-Key': apiKey,
         };
-        response = await (method == 'PUT'
-                ? http.put(
-                    uri,
-                    headers: {...headers, 'Content-Type': 'application/json'},
-                    body: jsonEncode(body),
-                  )
-                : http.get(uri, headers: headers))
+        final jsonHeaders = {...headers, 'Content-Type': 'application/json'};
+        response = await switch (method) {
+          'PUT' => http.put(uri, headers: jsonHeaders, body: jsonEncode(body)),
+          'POST' => http.post(uri, headers: jsonHeaders, body: jsonEncode(body)),
+          _ => http.get(uri, headers: headers),
+        }
             .timeout(_requestTimeout);
       }
 
