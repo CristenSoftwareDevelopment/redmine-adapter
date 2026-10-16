@@ -1,7 +1,7 @@
 name: redmine_monitor_flutter
 description: Monitor de consultas do Redmine com alertas in-app
 publish_to: "none"
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: ^3.4.0
