@@ -11,6 +11,7 @@ import '../../services/theme_service.dart';
 import '../../state/app_state.dart';
 import '../components.dart';
 import '../ui_utils.dart';
+import 'issue_actions.dart';
 import 'issue_detail_dialog.dart';
 
 /// Jira-like board (one column per status) or list of a query's issues.
@@ -154,6 +155,11 @@ class _BoardViewState extends State<BoardView> {
           _issues = issues.map(RedmineIssue.new).toList();
           _seen.addAll(_issues!.map((i) => i.statusId));
         });
+        // Same endpoint as the monitor: the sidebar count follows, unless the
+        // list hit getAllPages' cap or the query counts something else.
+        if (issues.length < 500 && widget.query.countPath == 'total_count') {
+          unawaited(context.read<AppState>().syncQueryCount(widget.query, issues.length));
+        }
       }
     } catch (error) {
       if (mounted && seq == _loadSeq) {
@@ -196,6 +202,14 @@ class _BoardViewState extends State<BoardView> {
     // The issue may no longer match the query filters.
     if (problem == null) unawaited(_load());
   }
+
+  /// ⋮ actions of a card or row; "Alterar situação" takes the drag path.
+  Widget _menu(RedmineIssue issue) => IssueActionsMenu(
+        issue: issue,
+        onChanged: _load,
+        statuses: [for (final s in _statuses) (s['id'] as int, '${s['name']}')],
+        onMove: (id) => _move(issue, _statuses.firstWhere((s) => s['id'] == id)),
+      );
 
   void _savePrefs(BoardPrefs prefs) {
     setState(() => _prefs = prefs);
@@ -675,7 +689,8 @@ class _BoardViewState extends State<BoardView> {
       showProject: multiProject,
       busy: _moving.contains(issue.id),
       dark: dark,
-      onTap: () => showIssueDetail(context, issue),
+      onTap: () => showIssueDetail(context, issue, onChanged: _load),
+      menu: _menu(issue),
     );
     return Padding(
       key: ValueKey(issue.id),
@@ -740,8 +755,8 @@ class _BoardViewState extends State<BoardView> {
           final List<Object> items = key == null
               ? visible
               : [
-                  for (final g in groupIssues(visible, key, missing)) ...[
-                    '${g.name}  ·  ${g.issues.length}',
+                  for (final (i, g) in groupIssues(visible, key, missing).indexed) ...[
+                    (name: g.name, count: g.issues.length, first: i == 0),
                     ...g.issues,
                   ],
                 ];
@@ -757,21 +772,55 @@ class _BoardViewState extends State<BoardView> {
                     headCell('Tipo', width: 150),
                     headCell('Prioridade', width: 130),
                     if (wide) headCell('Atualizada', width: 150),
+                    const SizedBox(width: 40),
                   ],
                   color: AppColors.sunken(dark: dark),
                 );
               }
               final item = items[index - 1];
-              if (item is String) {
-                return Container(
-                  color: AppColors.column(dark: dark),
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
-                  child: Text(item, style: AppText.bodySemibold(dark: dark)),
+              // Group header: groups split by a page-colored gap (like separate
+              // cards), then a lighter band with the group's color stripe (same
+              // hash as status dots), name and count.
+              if (item
+                  case (name: final String name, count: final int count, first: final bool first)) {
+                final (_, stripe) = AppColors.tone(Tag.hashed(name).tone, dark: dark);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!first)
+                      Container(
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: AppColors.page(dark: dark),
+                          border: Border(top: border, bottom: border),
+                        ),
+                      ),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 20, 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.fieldHover(dark: dark),
+                        border: Border(
+                          top: first ? border : BorderSide.none,
+                          left: BorderSide(color: stripe, width: 4),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            name,
+                            style: AppText.bodySemibold(dark: dark).copyWith(fontSize: 15),
+                          ),
+                          const SizedBox(width: 10),
+                          Tag('$count ${count == 1 ? 'tarefa' : 'tarefas'}'),
+                        ],
+                      ),
+                    ),
+                  ],
                 );
               }
               final issue = item as RedmineIssue;
               return InkWell(
-                onTap: () => showIssueDetail(context, issue),
+                onTap: () => showIssueDetail(context, issue, onChanged: _load),
                 hoverColor: AppColors.cellHover(dark: dark),
                 child: Container(
                   decoration: BoxDecoration(border: Border(top: border)),
@@ -880,6 +929,10 @@ class _BoardViewState extends State<BoardView> {
                           style: AppText.microLabel(dark: dark),
                         ),
                       ),
+                    SizedBox(
+                      width: 40,
+                      child: Align(alignment: Alignment.centerRight, child: _menu(issue)),
+                    ),
                   ]),
                 ),
               );
@@ -900,6 +953,7 @@ class _IssueCard extends StatelessWidget {
     required this.busy,
     required this.dark,
     required this.onTap,
+    required this.menu,
   });
 
   final RedmineIssue issue;
@@ -909,6 +963,9 @@ class _IssueCard extends StatelessWidget {
   final bool busy;
   final bool dark;
   final VoidCallback onTap;
+
+  /// ⋮ actions, at the top right next to the subject.
+  final Widget menu;
 
   @override
   Widget build(BuildContext context) {
@@ -928,20 +985,34 @@ class _IssueCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (showProject) ...[
-                  Text(
-                    issue.projectName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppText.microLabel(dark: dark).copyWith(fontSize: 11),
-                  ),
-                  const SizedBox(height: 4),
-                ],
-                Text(
-                  issue.subject,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.bodyMedium(dark: dark).copyWith(fontSize: 13),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (showProject) ...[
+                            Text(
+                              issue.projectName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.microLabel(dark: dark).copyWith(fontSize: 11),
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                          Text(
+                            issue.subject,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.bodyMedium(dark: dark).copyWith(fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    menu,
+                  ],
                 ),
                 if (issue.trackerName.isNotEmpty) ...[
                   const SizedBox(height: 12),

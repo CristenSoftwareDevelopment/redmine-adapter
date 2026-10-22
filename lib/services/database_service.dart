@@ -7,11 +7,14 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/alert_event.dart';
 import '../models/app_settings.dart';
+import '../models/business_hours.dart';
 import '../models/claude_action.dart';
+import '../models/custom_field.dart';
 import '../models/handoff_rule.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
 import '../models/team.dart';
+import '../models/time_entry.dart';
 
 class DatabaseService {
   DatabaseService._();
@@ -247,6 +250,15 @@ class DatabaseService {
             members TEXT NOT NULL DEFAULT '[]'
           )
         ''');
+        await database.execute('''
+          CREATE TABLE IF NOT EXISTS overtime (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            day TEXT NOT NULL,
+            issue_id INTEGER,
+            hours REAL NOT NULL,
+            note TEXT
+          )
+        ''');
       },
     );
   }
@@ -403,10 +415,20 @@ class DatabaseService {
           : map['account_name'],
       handoffRules: HandoffRule.listFromJson(map['handoff_rules']),
       claudeActions: ClaudeAction.listFromJson(map['claude_actions']),
+      customFields: CustomFieldDef.listFromJson(map['custom_fields']),
       agileBoard: map['agile_board'] == null
           ? const AgileBoard()
           : AgileBoard.fromJson(jsonDecode(map['agile_board']!) as Map<String, dynamic>),
       sidebarWidth: double.tryParse(map['sidebar_width'] ?? '') ?? defaultSidebarWidth,
+      boardOrder: map['board_order'] == null
+          ? const []
+          : (jsonDecode(map['board_order']!) as List).whereType<int>().toList(),
+      businessHours: map['business_hours'] == null
+          ? const BusinessHours()
+          : BusinessHours.fromJson(jsonDecode(map['business_hours']!) as Map<String, dynamic>),
+      overtimePaid: map['overtime_paid'] == null
+          ? const {}
+          : (jsonDecode(map['overtime_paid']!) as List).whereType<String>().toSet(),
     );
   }
 
@@ -499,12 +521,32 @@ class DatabaseService {
       );
       await txn.insert(
         'settings',
+        {'key': 'custom_fields', 'value': CustomFieldDef.listToJson(settings.customFields)},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
         {'key': 'agile_board', 'value': jsonEncode(settings.agileBoard.toJson())},
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       await txn.insert(
         'settings',
         {'key': 'sidebar_width', 'value': '${settings.sidebarWidth}'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
+        {'key': 'board_order', 'value': jsonEncode(settings.boardOrder)},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
+        {'key': 'business_hours', 'value': jsonEncode(settings.businessHours.toJson())},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'settings',
+        {'key': 'overtime_paid', 'value': jsonEncode(settings.overtimePaid.toList()..sort())},
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     });
@@ -629,6 +671,27 @@ class DatabaseService {
   Future<void> clearTeams() async {
     final database = await db;
     await database.delete('teams');
+  }
+
+  Future<List<OvertimeEntry>> listOvertime() async {
+    final database = await db;
+    final rows = await database.query('overtime', orderBy: 'day DESC, id DESC');
+    return rows.map(OvertimeEntry.fromDbMap).toList();
+  }
+
+  Future<void> insertOvertime(OvertimeEntry entry) async {
+    final database = await db;
+    await database.insert('overtime', entry.toDbMap());
+  }
+
+  Future<void> deleteOvertime(int id) async {
+    final database = await db;
+    await database.delete('overtime', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearOvertime() async {
+    final database = await db;
+    await database.delete('overtime');
   }
 
   Future<List<AlertEvent>> listAlerts({int limit = 100}) async {

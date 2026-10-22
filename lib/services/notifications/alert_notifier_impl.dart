@@ -10,6 +10,7 @@ abstract class AlertNotifierImpl {
     required AlertEvent alert,
     required String title,
     required String body,
+    void Function()? onClick,
   });
 }
 

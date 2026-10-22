@@ -21,6 +21,8 @@ class HandoffRule {
   const HandoffRule({
     required this.name,
     this.sourceTrackerIds = const [],
+    this.statusIds = const [],
+    this.order,
     this.targetTrackerId,
     this.statusId,
     this.assigneeId,
@@ -32,6 +34,7 @@ class HandoffRule {
     this.icon,
     this.sameIssue = false,
     this.logTime = false,
+    this.bulk = false,
   });
 
   /// Button label, e.g. "Enviar para QA".
@@ -47,6 +50,13 @@ class HandoffRule {
 
   /// Trackers where the action shows up; empty = every tracker.
   final List<int> sourceTrackerIds;
+
+  /// Statuses where the action shows up (e.g. only "Em pausa"); empty = every status.
+  final List<int> statusIds;
+
+  /// Position among all issue action buttons (Automações › Ordem dos botões);
+  /// null = never ordered, after the ordered ones.
+  final int? order;
 
   /// Tracker of the suggested target issues; null = any.
   final int? targetTrackerId;
@@ -64,6 +74,11 @@ class HandoffRule {
   /// Shows the hours section on send (prefilled since the last update).
   final bool logTime;
 
+  /// The send dialog also lists the subtasks, siblings and related issues of
+  /// the issue being updated: the checked ones get the same comment, status,
+  /// assignee and version (hours stay on the main one).
+  final bool bulk;
+
   /// Default time entry activity (e.g. "Code review"); null = picked on send.
   final int? timeActivityId;
 
@@ -74,11 +89,19 @@ class HandoffRule {
   bool appliesTo(int? trackerId) =>
       sourceTrackerIds.isEmpty || sourceTrackerIds.contains(trackerId);
 
+  /// The button shows on an issue of [trackerId] in [statusId].
+  bool showsOn(int? trackerId, int statusId) =>
+      appliesTo(trackerId) && (statusIds.isEmpty || statusIds.contains(statusId));
+
+  HandoffRule withOrder(int? order) => fromJson({...toJson(), 'order': order});
+
   Map<String, Object?> toJson() => {
         'name': name,
         'icon': icon,
         'sameIssue': sameIssue,
         'sourceTrackerIds': sourceTrackerIds,
+        'statusIds': statusIds,
+        'order': order,
         'targetTrackerId': targetTrackerId,
         'statusId': statusId,
         'assigneeId': assigneeId,
@@ -86,6 +109,7 @@ class HandoffRule {
         'template': template,
         'multiTemplate': multiTemplate,
         'logTime': logTime,
+        'bulk': bulk,
         'timeActivityId': timeActivityId,
         'statusSteps': [
           for (final s in statusSteps) {'trackerId': s.trackerId, 'statusId': s.statusId},
@@ -97,6 +121,8 @@ class HandoffRule {
         icon: json['icon'] as String?,
         sameIssue: json['sameIssue'] == true,
         sourceTrackerIds: (json['sourceTrackerIds'] as List? ?? const []).whereType<int>().toList(),
+        statusIds: (json['statusIds'] as List? ?? const []).whereType<int>().toList(),
+        order: json['order'] as int?,
         targetTrackerId: json['targetTrackerId'] as int?,
         statusId: json['statusId'] as int?,
         assigneeId: json['assigneeId'] as int?,
@@ -108,6 +134,7 @@ class HandoffRule {
         logTime: json['logTime'] as bool? ??
             (json['sameIssue'] == true || json['timeActivityId'] != null),
         timeActivityId: json['timeActivityId'] as int?,
+        bulk: json['bulk'] == true,
         statusSteps: [
           for (final s in (json['statusSteps'] as List? ?? const []).whereType<Map>())
             if (s['trackerId'] is int && s['statusId'] is int)

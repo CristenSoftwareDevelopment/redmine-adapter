@@ -12,6 +12,7 @@ import '../../state/app_state.dart';
 import '../board/issue_detail_dialog.dart';
 import '../components.dart';
 import '../ui_utils.dart';
+import 'overtime_view.dart';
 
 /// Teams (groups of Redmine users) and their spent time per person and day.
 /// Members come from project memberships, so no admin key is needed.
@@ -27,6 +28,7 @@ const _myTeamId = -1;
 
 class _TeamsViewState extends State<TeamsView> {
   int? _selectedId;
+  bool _overtime = false;
 
   /// "Meu tempo", built from /my/account.json; null while loading or on error.
   Team? _me;
@@ -74,38 +76,51 @@ class _TeamsViewState extends State<TeamsView> {
           subtitle:
               'Acompanhe as suas horas e as do time, e explore os lançamentos de cada pessoa.',
           actions: [
-            FilledButton.icon(
-              onPressed: () => _edit(null),
-              icon: const Icon(Icons.add, size: 17),
-              label: const Text('Novo time'),
+            AppTabs<bool>(
+              tabs: const [
+                (false, 'Lançamentos', Icons.schedule),
+                (true, 'Horas extras', Icons.more_time),
+              ],
+              selected: _overtime,
+              onChanged: (v) => setState(() => _overtime = v),
             ),
+            if (!_overtime)
+              FilledButton.icon(
+                onPressed: () => _edit(null),
+                icon: const Icon(Icons.add, size: 17),
+                label: const Text('Novo time'),
+              ),
           ],
         ),
-        if (_meError != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              'Não foi possível carregar o seu usuário: $_meError',
-              style: AppText.microLabel(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
+        if (_overtime)
+          const OvertimeView()
+        else ...[
+          if (_meError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Não foi possível carregar o seu usuário: $_meError',
+                style: AppText.microLabel(dark: dark).copyWith(color: AppColors.danger(dark: dark)),
+              ),
             ),
-          ),
-        if (selected == null)
-          _meError == null
-              ? const LinearProgressIndicator(minHeight: 2)
-              : const Panel(
-                  child: EmptyState(
-                    icon: Icons.groups_outlined,
-                    text: 'Crie um time e adicione pessoas para acompanhar as horas lançadas.',
-                  ),
-                )
-        else
-          _TeamReport(
-            team: selected,
-            teams: teams,
-            onSelectTeam: (id) => setState(() => _selectedId = id),
-            // "Meu tempo" isn't a saved team: nothing to edit.
-            onEditTeam: selected.id == _myTeamId ? null : () => _edit(selected),
-          ),
+          if (selected == null)
+            _meError == null
+                ? const LinearProgressIndicator(minHeight: 2)
+                : const Panel(
+                    child: EmptyState(
+                      icon: Icons.groups_outlined,
+                      text: 'Crie um time e adicione pessoas para acompanhar as horas lançadas.',
+                    ),
+                  )
+          else
+            _TeamReport(
+              team: selected,
+              teams: teams,
+              onSelectTeam: (id) => setState(() => _selectedId = id),
+              // "Meu tempo" isn't a saved team: nothing to edit.
+              onEditTeam: selected.id == _myTeamId ? null : () => _edit(selected),
+            ),
+        ],
       ],
     );
   }

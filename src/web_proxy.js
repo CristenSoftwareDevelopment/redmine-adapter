@@ -21,7 +21,8 @@ function readRequestBody(req) {
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
-      if (body.length > 1024 * 1024) {
+      // Uploads come base64-encoded (bodyBase64).
+      if (body.length > 50 * 1024 * 1024) {
         reject(new Error('Payload muito grande'));
         req.destroy();
       }
@@ -66,7 +67,11 @@ async function handleFetch(req, res) {
     'Accept': 'application/json',
   };
   let requestBody;
-  if (parsed.body !== undefined) {
+  if (typeof parsed.bodyBase64 === 'string') {
+    // Binary body, e.g. POST /uploads.json.
+    headers['Content-Type'] = 'application/octet-stream';
+    requestBody = Buffer.from(parsed.bodyBase64, 'base64');
+  } else if (parsed.body !== undefined) {
     headers['Content-Type'] = 'application/json';
     requestBody = JSON.stringify(parsed.body);
   }

@@ -12,7 +12,9 @@ import 'package:provider/provider.dart';
 import 'package:redmine_monitor_flutter/models/alert_event.dart';
 import 'package:redmine_monitor_flutter/models/alert_rule.dart';
 import 'package:redmine_monitor_flutter/models/app_settings.dart';
+import 'package:redmine_monitor_flutter/models/business_hours.dart';
 import 'package:redmine_monitor_flutter/models/claude_action.dart';
+import 'package:redmine_monitor_flutter/models/custom_field.dart';
 import 'package:redmine_monitor_flutter/models/handoff_rule.dart';
 import 'package:redmine_monitor_flutter/models/monitored_query.dart';
 import 'package:redmine_monitor_flutter/models/redmine_issue.dart';
@@ -24,9 +26,16 @@ import 'package:redmine_monitor_flutter/state/app_state.dart';
 import 'package:redmine_monitor_flutter/ui/board/attachment_preview.dart';
 import 'package:redmine_monitor_flutter/ui/board/board_view.dart';
 import 'package:redmine_monitor_flutter/ui/board/handoff_dialog.dart';
+import 'package:redmine_monitor_flutter/ui/board/issue_actions.dart';
 import 'package:redmine_monitor_flutter/ui/board/issue_detail_dialog.dart';
+import 'package:redmine_monitor_flutter/ui/board/issue_fields.dart';
+import 'package:redmine_monitor_flutter/ui/board/note_editor.dart';
+import 'package:redmine_monitor_flutter/ui/board/time_entry_fields.dart';
+import 'package:redmine_monitor_flutter/ui/board/tramite_dialog.dart';
+import 'package:redmine_monitor_flutter/ui/board/bulk_edit_dialog.dart';
 import 'package:redmine_monitor_flutter/services/theme_service.dart';
 import 'package:redmine_monitor_flutter/ui/components.dart';
+import 'package:redmine_monitor_flutter/ui/home_screen.dart';
 import 'package:redmine_monitor_flutter/ui/icon_picker.dart';
 import 'package:redmine_monitor_flutter/ui/ui_utils.dart';
 import 'package:redmine_monitor_flutter/ui/widgets/query_form_dialog.dart';
@@ -286,6 +295,62 @@ void main() {
     expect(HandoffRule.listFromJson(null), isEmpty);
   });
 
+  test('actions show by tracker and status, in the order picked', () {
+    const paused = HandoffRule(name: 'Retomar', statusIds: [5]);
+    expect(paused.showsOn(1, 5), true);
+    expect(paused.showsOn(1, 2), false);
+    const review =
+        ClaudeAction(name: 'CR', cwd: '/x', template: 't', trackerIds: [2], statusIds: [3]);
+    expect(review.showsOn(2, 3), true);
+    expect(review.showsOn(1, 3), false);
+    expect(review.showsOn(2, 4), false);
+    // Saved before the filters and the order: shows everywhere, never ordered.
+    final old = ClaudeAction.fromJson({'name': 'old', 'cwd': '', 'template': ''});
+    expect(old.showsOn(9, 9), true);
+    expect(old.order, isNull);
+    expect(HandoffRule.fromJson({'name': 'old'}).statusIds, isEmpty);
+    // withOrder goes through the JSON: nothing else is lost.
+    const qa = HandoffRule(name: 'QA', statusIds: [5], statusSteps: [(trackerId: 1, statusId: 2)]);
+    final ordered = qa.withOrder(3);
+    expect(ordered.order, 3);
+    expect(ordered.statusIds, [5]);
+    expect(ordered.statusSteps, [(trackerId: 1, statusId: 2)]);
+
+    String names(AppSettings s) => [
+          for (final a in s.orderedActions)
+            switch (a) {
+              ClaudeAction a => a.name,
+              HandoffRule r => r.name,
+              _ => '?',
+            },
+        ].join(',');
+    const c1 = ClaudeAction(name: 'c1', cwd: '', template: '');
+    const c2 = ClaudeAction(name: 'c2', cwd: '', template: '');
+    const r1 = HandoffRule(name: 'r1'), r2 = HandoffRule(name: 'r2');
+    final settings =
+        AppSettings(baseUrl: '', apiKey: '', claudeActions: [c1, c2], handoffRules: [r1, r2]);
+    expect(names(settings), 'c1,c2,r1,r2'); // never ordered: as before
+    expect(
+      names(settings.copyWith(
+        claudeActions: [c1.withOrder(2), c2], // c2 never ordered (e.g. new): last
+        handoffRules: [r1.withOrder(1), r2.withOrder(0)],
+      )),
+      'r2,r1,c1,c2',
+    );
+  });
+
+  test('sidebar boards follow the dragged order, the others after', () {
+    MonitoredQuery board(int id) =>
+        MonitoredQuery(id: id, name: '#$id', endpoint: '/issues.json', directUrl: '/issues');
+    final boards = [board(agileQueryId), board(1), board(2), board(3)];
+    String ids(List<int> order) => AppSettings(baseUrl: '', apiKey: '', boardOrder: order)
+        .sortBoards(boards)
+        .map((b) => b.id)
+        .join(',');
+    expect(ids(const []), '-1,1,2,3');
+    expect(ids(const [3, agileQueryId]), '3,-1,1,2');
+  });
+
   test('board groups sort naturally with the missing value last', () {
     expect(compareNatural('3.79', '3.80') < 0, true);
     expect(compareNatural('3.80', '3.100') < 0, true);
@@ -518,16 +583,6 @@ void main() {
     expect(relationLabel({'relation_type': 'precedes', 'issue_id': 1}, 2), 'Segue');
   });
 
-  test('elapsedHm rounds wall-clock time to 15 minutes', () {
-    final start = DateTime(2026, 10, 14, 15, 0);
-    String after(Duration d) => elapsedHm(start, start.add(d));
-    expect(after(const Duration(hours: 1, minutes: 37)), '1:30');
-    expect(after(const Duration(hours: 1, minutes: 38)), '1:45');
-    expect(after(const Duration(minutes: 3)), '0:15');
-    expect(after(const Duration(hours: 26)), '26:00');
-    expect(parseHours(after(const Duration(hours: 1, minutes: 38))), 1.75);
-  });
-
   test('button icons are saved by key and fall back to the default', () {
     const action = ClaudeAction(name: 'CR', cwd: '/p', template: '/x', icon: 'rate_review');
     expect(ClaudeAction.fromJson(action.toJson() as Map<String, dynamic>).icon, 'rate_review');
@@ -629,6 +684,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(picked, [9, null]);
     expect(find.text('Manter o atual (Fulano)'), findsOneWidget);
+  });
+
+  testWidgets('SearchSelect with typedId picks a number outside the options', (tester) async {
+    int? value;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: StatefulBuilder(
+          builder: (context, set) => SearchSelect(
+            value: value,
+            typedId: true,
+            hint: 'Tarefa…',
+            options: const [(287239, '#287239 · Comprovante')],
+            onChanged: (v) => set(() => value = v),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('Tarefa…'));
+    await tester.pumpAndSettle();
+    final search = find.widgetWithText(TextField, 'Buscar…');
+    await tester.enterText(search, '287239'); // already an option: no extra entry
+    await tester.pumpAndSettle();
+    expect(find.textContaining('usar este ID'), findsNothing);
+    await tester.enterText(search, '#4001');
+    await tester.pumpAndSettle();
+    expect(find.text('#4001 · usar este ID'), findsOneWidget);
+    await tester.testTextInput.receiveAction(TextInputAction.done); // Enter
+    await tester.pumpAndSettle();
+    expect(value, 4001);
+    expect(find.text('#4001'), findsOneWidget); // shown on the field
   });
 
   test('logTime round-trips and keeps the old behaviour for saved rules', () {
@@ -805,5 +890,808 @@ void main() {
     await tester.pumpAndSettle();
     debugDefaultTargetPlatformOverride = null;
     expect(copied, 'Status\nNova\nPrioridade\nNormal');
+  });
+
+  /// App with an "open" button running [open] (inside a Scaffold, for snackbars).
+  Widget appWith(void Function(BuildContext context) open, {AppSettings? settings}) =>
+      ChangeNotifierProvider(
+        create: (_) => AppState(databaseService: DatabaseService.instance)
+          ..settings = settings ?? AppSettings(baseUrl: 'https://r.test', apiKey: 'k'),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) =>
+                  TextButton(onPressed: () => open(context), child: const Text('open')),
+            ),
+          ),
+        ),
+      );
+
+  testWidgets('description keeps Redmine line breaks; edit saves only what changed',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final issue = {
+      'id': 10,
+      'subject': 'Portal',
+      'description': '**Descrição:**\r\nAlgumas telas',
+      'project': {'id': 1, 'name': 'P'},
+      'status': {'id': 1, 'name': 'Nova'},
+      'journals': [],
+    };
+    final puts = <String, Object?>{};
+    await http.runWithClient(() async {
+      await tester.pumpWidget(appWith((c) => showIssueDetail(c, RedmineIssue(issue))));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      // Redmine renders every newline as a line break (CommonMark hardbreaks).
+      expect(find.textContaining('Descrição:\nAlgumas telas', findRichText: true), findsOneWidget);
+
+      await tester.tap(find.text('Editar'));
+      await tester.pumpAndSettle();
+      final editor = find.widgetWithText(TextField, '**Descrição:**\nAlgumas telas');
+      expect(editor, findsOneWidget); // raw text, line endings as typed
+      await tester.enterText(editor, 'Nova descrição');
+      await tester.tap(find.text('Salvar'));
+      await tester.pumpAndSettle();
+    },
+        () => MockClient((r) async {
+              if (r.method == 'PUT') {
+                puts[r.url.path] = jsonDecode(r.body);
+                return http.Response('', 204);
+              }
+              return http.Response(
+                jsonEncode(r.url.path == '/issue_statuses.json'
+                    ? {
+                        'issue_statuses': [
+                          {'id': 1, 'name': 'Nova'},
+                        ],
+                      }
+                    : {'issue': issue}),
+                200,
+              );
+            }));
+    expect(puts, {
+      '/issues/10.json': {
+        'issue': {'description': 'Nova descrição'},
+      },
+    });
+    expect(find.text('Salvar'), findsNothing); // back to view mode
+  });
+
+  testWidgets('issue dialog shows only the actions of its status', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final issue = {
+      'id': 10,
+      'subject': 'Pausada',
+      'status': {'id': 5, 'name': 'Em pausa'},
+      'tracker': {'id': 1, 'name': 'Bug'},
+      'journals': [],
+    };
+    final settings = AppSettings(
+      baseUrl: 'https://r.test',
+      apiKey: 'k',
+      handoffRules: const [
+        HandoffRule(name: 'Pausar', sameIssue: true, statusIds: [2]),
+        HandoffRule(name: 'Retomar', sameIssue: true, statusIds: [5]),
+      ],
+    );
+    await http.runWithClient(() async {
+      await tester
+          .pumpWidget(appWith((c) => showIssueDetail(c, RedmineIssue(issue)), settings: settings));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }, () => MockClient((r) async => http.Response(jsonEncode({'issue': issue}), 200)));
+    expect(find.text('Retomar'), findsOneWidget);
+    expect(find.text('Pausar'), findsNothing);
+  });
+
+  test('CustomFieldDef: admin JSON, guessed types, scan and display', () {
+    final level = CustomFieldDef.fromJson({
+      'id': 7,
+      'name': 'Nível',
+      'field_format': 'enumeration',
+      'possible_values': [
+        {'value': '3', 'label': 'Alta'},
+      ],
+      'trackers': [
+        {'id': 1, 'name': 'Bug'},
+      ],
+      'default_value': '',
+    });
+    expect(level.options, [('3', 'Alta')]);
+    expect(level.trackerIds, [1]);
+    expect(level.defaultValue, isNull);
+    expect(CustomFieldDef.fromJson(level.toJson()).options, level.options); // saved = same JSON
+
+    String guess(List<Object?> values) =>
+        CustomFieldDef.infer(id: 1, name: 'x', values: values).format;
+    expect(guess(['0', '1', '', null]), 'bool');
+    expect(guess(['2026-06-03']), 'date');
+    expect(guess(['12', '-3']), 'int');
+    expect(guess(['1,5', '2']), 'float');
+    expect(guess(['a\nb']), 'text');
+    expect(guess(['Vendas', 'Vendas', 'Portal', 'Portal']), 'list');
+    expect(guess(['Ana', 'Bia', 'Caio']), 'string');
+
+    final scanned = scanCustomFields([
+      {
+        'tracker': {'id': 3},
+        'custom_fields': [
+          {'id': 5, 'name': 'Revisar', 'value': '0'},
+        ],
+      },
+      {
+        'tracker': {'id': 2},
+        'custom_fields': [
+          {'id': 5, 'name': 'Revisar', 'value': '1'},
+        ],
+      },
+    ]);
+    expect(scanned.single.format, 'bool');
+    expect(scanned.single.trackerIds, [2, 3]);
+
+    const options = IssueOptions(members: [(4, 'Rafael')]);
+    const flag = CustomFieldDef(id: 1, name: 'b', format: 'bool');
+    expect(customFieldText(flag, '1', options), 'Sim');
+    expect(customFieldText(flag, '0', options), 'Não');
+    expect(customFieldText(level, '3', options), 'Alta');
+    expect(customFieldText(const CustomFieldDef(id: 2, name: 'u', format: 'user'), '4', options),
+        'Rafael');
+    expect(customFieldText(null, '2026-06-03', options), '03-06-2026'); // no type saved
+    expect(customFieldText(null, ['a', 'b'], options), 'a, b');
+  });
+
+  testWidgets('Editar: typed fields send only what changed; history names the changes',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final issue = {
+      'id': 10,
+      'subject': 'Portal',
+      'description': 'x',
+      'project': {'id': 1, 'name': 'P'},
+      'tracker': {'id': 3, 'name': 'Negócio'},
+      'status': {'id': 2, 'name': 'Em andamento'},
+      'custom_fields': [
+        {'id': 5, 'name': 'Revisar Código-Fonte', 'value': '0'},
+        {'id': 6, 'name': 'Módulo', 'value': 'Vendas'},
+      ],
+      'journals': [
+        {
+          'user': {'name': 'Ana'},
+          'created_on': '2026-10-16T10:00:00Z',
+          'notes': '',
+          'details': [
+            {'property': 'attr', 'name': 'status_id', 'old_value': '1', 'new_value': '2'},
+            {'property': 'cf', 'name': '5', 'old_value': '1', 'new_value': '0'},
+          ],
+        },
+      ],
+    };
+    final settings = AppSettings(
+      baseUrl: 'https://r.test',
+      apiKey: 'k',
+      customFields: const [CustomFieldDef(id: 5, name: 'Revisar Código-Fonte', format: 'bool')],
+    );
+    final puts = <String, Object?>{};
+    await http.runWithClient(() async {
+      await tester
+          .pumpWidget(appWith((c) => showIssueDetail(c, RedmineIssue(issue)), settings: settings));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Não'), findsOneWidget); // bool shown as Sim/Não, not "0"
+
+      await tester.tap(find.text('Histórico'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Status:  Nova  →  Em andamento', findRichText: true),
+          findsOneWidget);
+      expect(find.textContaining('Revisar Código-Fonte:  Sim  →  Não', findRichText: true),
+          findsOneWidget);
+
+      await tester.tap(find.text('Editar'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Portal'), 'Portal novo');
+      await tester.enterText(find.byKey(const ValueKey('estimated_hours')), '1:30');
+      await tester.ensureVisible(find.text('Sim')); // bottom of the side panel
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sim'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Salvar'));
+      await tester.pumpAndSettle();
+    },
+        () => MockClient((r) async {
+              if (r.method == 'PUT') {
+                puts[r.url.path] = jsonDecode(r.body);
+                return http.Response('', 204);
+              }
+              return http.Response(
+                jsonEncode(switch (r.url.path) {
+                  '/issue_statuses.json' => {
+                      'issue_statuses': [
+                        {'id': 1, 'name': 'Nova'},
+                        {'id': 2, 'name': 'Em andamento'},
+                      ],
+                    },
+                  '/issues/10.json' => {'issue': issue},
+                  _ => <String, Object>{},
+                }),
+                200,
+              );
+            }));
+    expect(puts, {
+      '/issues/10.json': {
+        'issue': {
+          'subject': 'Portal novo',
+          'estimated_hours': 1.5,
+          'custom_fields': [
+            {'id': 5, 'value': '1'},
+          ],
+        },
+      },
+    });
+  });
+
+  testWidgets('Alterar em massa lists subtasks of related issues; changes checked ones only',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final issue = RedmineIssue({
+      'id': 10,
+      'subject': 'História',
+      'project': {'id': 1, 'name': 'P'},
+      'relations': [
+        {'issue_id': 10, 'issue_to_id': 12, 'relation_type': 'relates'},
+      ],
+    });
+    final puts = <String, Object?>{};
+    var moved = false;
+    await http.runWithClient(() async {
+      await tester.pumpWidget(appWith((c) async => moved = await showBulkEditDialog(c, issue)));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Velha'), findsNothing); // closed versions are not offered
+      await tester.tap(find.text('Manter').at(2)); // Situação, Responsável, Versão
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sprint 1').first); // the menu entry, before the row tags
+      await tester.pumpAndSettle();
+      // #10 and its subtask #11 are checked, but #11 is already there.
+      expect(find.text('Aplicar em 1'), findsOneWidget);
+      // Checking the related #12 takes its subtask #13 along.
+      await tester.tap(find.text('QA'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Aplicar em 3'));
+      await tester.pumpAndSettle();
+    },
+        () => MockClient((r) async {
+              if (r.method == 'PUT') {
+                puts[r.url.path] = jsonDecode(r.body);
+                return http.Response('', 204);
+              }
+              return http.Response(
+                jsonEncode(switch (r.url.path) {
+                  '/projects/1/versions.json' => {
+                      'versions': [
+                        {'id': 5, 'name': 'Sprint 1', 'status': 'open'},
+                        {'id': 6, 'name': 'Velha', 'status': 'closed'},
+                      ],
+                    },
+                  '/issue_statuses.json' => {
+                      'issue_statuses': [
+                        {'id': 1, 'name': 'Nova'},
+                      ],
+                    },
+                  // Roots by issue_id, then subtasks level by level by parent_id.
+                  _ => {
+                      'issues': switch (r.url.queryParameters['parent_id']) {
+                        null when r.url.queryParameters['issue_id'] != null => [
+                            {'id': 10, 'subject': 'História'},
+                            {'id': 12, 'subject': 'QA'},
+                          ],
+                        '10,12' => [
+                            {
+                              'id': 11,
+                              'subject': 'Dev',
+                              'parent': {'id': 10},
+                              'fixed_version': {'id': 5, 'name': 'Sprint 1'},
+                            },
+                            {
+                              'id': 13,
+                              'subject': 'Teste',
+                              'parent': {'id': 12},
+                            },
+                          ],
+                        _ => <Object>[],
+                      },
+                    },
+                }),
+                200,
+              );
+            }));
+    const version = {
+      'issue': {'fixed_version_id': 5},
+    };
+    expect(
+        puts, {'/issues/10.json': version, '/issues/12.json': version, '/issues/13.json': version});
+    expect(moved, true);
+  });
+
+  test('bulk round-trips and old rules have it off', () {
+    const rule = HandoffRule(name: 'Enviar ao dev', sameIssue: true, bulk: true);
+    expect(HandoffRule.fromJson(rule.toJson() as Map<String, dynamic>).bulk, true);
+    expect(HandoffRule.fromJson({'name': 'x'}).bulk, false);
+  });
+
+  testWidgets('bulk trâmite repeats comment and status on the checked linked issues',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final issue = RedmineIssue({
+      'id': 10,
+      'subject': 'Portal',
+      'project': {'id': 1, 'name': 'P'},
+      'status': {'id': 1, 'name': 'Nova'},
+      'journals': [],
+      'relations': [
+        {'issue_id': 10, 'issue_to_id': 12, 'relation_type': 'relates'},
+      ],
+    });
+    const rule = HandoffRule(
+      name: 'Enviar ao dev',
+      sameIssue: true,
+      statusId: 2,
+      template: 'Para dev',
+      bulk: true,
+    );
+    final puts = <String, Object?>{};
+    await http.runWithClient(() async {
+      await tester.pumpWidget(appWith((c) => showTramiteDialog(c, issue, rule)));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('QA')); // the related #12
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Enviar'));
+      await tester.pumpAndSettle();
+      expect(find.text('•  Situação: Nova → Em aprovação'), findsOneWidget);
+      expect(find.text('•  #12 situação: Nova → Em aprovação'), findsOneWidget);
+      expect(find.text('•  Comentário também em #12'), findsOneWidget);
+      await tester.tap(find.text('Confirmar'));
+      await tester.pumpAndSettle();
+    },
+        () => MockClient((r) async {
+              if (r.method == 'PUT') {
+                puts[r.url.path] = jsonDecode(r.body);
+                return http.Response('', 204);
+              }
+              return http.Response(
+                jsonEncode(switch (r.url.path) {
+                  '/issue_statuses.json' => {
+                      'issue_statuses': [
+                        {'id': 1, 'name': 'Nova'},
+                        {'id': 2, 'name': 'Em aprovação'},
+                      ],
+                    },
+                  '/issues.json' when r.url.queryParameters['issue_id'] != null => {
+                      'issues': [
+                        {
+                          'id': 10,
+                          'subject': 'Portal',
+                          'status': {'id': 1, 'name': 'Nova'},
+                        },
+                        {
+                          'id': 12,
+                          'subject': 'QA',
+                          'status': {'id': 1, 'name': 'Nova'},
+                        },
+                      ],
+                    },
+                  // setIssueStatus reads the issue again.
+                  '/issues/10.json' || '/issues/12.json' => {
+                      'issue': {
+                        'status': {'id': 2, 'name': 'Em aprovação'},
+                      },
+                    },
+                  _ => <String, Object>{},
+                }),
+                200,
+              );
+            }));
+    const update = {
+      'issue': {'notes': 'Para dev', 'status_id': 2},
+    };
+    expect(puts, {'/issues/10.json': update, '/issues/12.json': update});
+  });
+
+  testWidgets('⋮ menu: Alterar situação moves; a Claude action that moves asks first',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final issue = RedmineIssue({
+      'id': 10,
+      'subject': 'Portal',
+      'status': {'id': 1, 'name': 'Nova'},
+    });
+    final moves = <int>[];
+    final requests = <String>[];
+    await http.runWithClient(() async {
+      await tester.pumpWidget(ChangeNotifierProvider(
+        create: (_) => AppState(databaseService: DatabaseService.instance)
+          ..settings = AppSettings(
+            baseUrl: 'https://r.test',
+            apiKey: 'k',
+            claudeActions: const [
+              ClaudeAction(name: 'Revisar', cwd: '/tmp', template: 'x', statusId: 2),
+            ],
+          ),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: IssueActionsMenu(
+                issue: issue,
+                onChanged: () {},
+                statuses: const [(1, 'Nova'), (2, 'Em andamento')],
+                onMove: moves.add,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.byTooltip('Ações'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alterar situação'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Em andamento'));
+      await tester.pumpAndSettle();
+      expect(moves, [2]);
+
+      await tester.tap(find.byTooltip('Ações'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Revisar'));
+      await tester.pumpAndSettle();
+      expect(find.text('•  Situação: Nova → Em andamento'), findsOneWidget);
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+    },
+        () => MockClient((r) async {
+              requests.add('${r.method} ${r.url.path}');
+              return http.Response(
+                jsonEncode({
+                  'issue_statuses': [
+                    {'id': 1, 'name': 'Nova'},
+                    {'id': 2, 'name': 'Em andamento'},
+                  ],
+                }),
+                200,
+              );
+            }));
+    expect(requests, ['GET /issue_statuses.json']); // Cancelar: nothing opened or changed
+  });
+
+  testWidgets('trâmite that changes the status asks before sending', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final issue = RedmineIssue({
+      'id': 10,
+      'subject': 'Portal',
+      'project': {'id': 1, 'name': 'P'},
+      'status': {'id': 1, 'name': 'Nova'},
+      'journals': [],
+    });
+    const rule = HandoffRule(name: 'Testar', sameIssue: true, statusId: 2, template: '');
+    final puts = <String>[];
+    var sent = false;
+    await http.runWithClient(() async {
+      await tester.pumpWidget(appWith((c) async => sent = await showTramiteDialog(c, issue, rule)));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Enviar'));
+      await tester.pumpAndSettle();
+      expect(find.text('•  Situação: Nova → Em teste'), findsOneWidget);
+      expect(puts, isEmpty); // nothing before confirming
+      await tester.tap(find.text('Confirmar'));
+      await tester.pumpAndSettle();
+    },
+        () => MockClient((r) async {
+              if (r.method == 'PUT') {
+                puts.add(r.url.path);
+                return http.Response('', 204);
+              }
+              return http.Response(
+                jsonEncode(switch (r.url.path) {
+                  '/issue_statuses.json' => {
+                      'issue_statuses': [
+                        {'id': 1, 'name': 'Nova'},
+                        {'id': 2, 'name': 'Em teste'},
+                      ],
+                    },
+                  '/issues/10.json' => {
+                      'issue': {
+                        'id': 10,
+                        'status': {'id': 2, 'name': 'Em teste'},
+                      },
+                    },
+                  _ => <String, Object>{},
+                }),
+                200,
+              );
+            }));
+    expect(puts, ['/issues/10.json']);
+    expect(sent, true);
+  });
+
+  test('formatting bar: wrap the selection, prefix lines, code block on its own line', () {
+    TextEditingValue v(String text, int start, [int? end]) => TextEditingValue(
+          text: text,
+          selection: TextSelection(baseOffset: start, extentOffset: end ?? start),
+        );
+    final bold = wrapSelection(v('um dois', 3, 7), '**');
+    expect(bold.text, 'um **dois**');
+    expect(bold.selection.textInside(bold.text), 'dois'); // stays selected
+    final empty = wrapSelection(v('ab', 1), '`');
+    expect(empty.text, 'a``b');
+    expect(empty.selection, const TextSelection.collapsed(offset: 2)); // cursor between
+    expect(prefixLines(v('um\ndois\ntrês', 4), '# ').text, 'um\n# dois\ntrês'); // cursor's line
+    expect(prefixLines(v('um\ndois\ntrês', 1, 5), '* ').text, '* um\n* dois\ntrês');
+    expect(codeBlock(v('texto', 5)).text, 'texto\n```\n\n```');
+    expect(codeBlock(v('', 0)).text, '```\n\n```');
+  });
+
+  testWidgets('NoteEditor preview renders the markdown', (tester) async {
+    final controller = TextEditingController(text: '# Teste\n**forte**');
+    final files = <PendingFile>[]; // changed in place by the editor
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: NoteEditor(controller: controller, files: files, onChanged: () {}),
+      ),
+    ));
+    expect(find.widgetWithText(TextField, '# Teste\n**forte**'), findsOneWidget);
+    await tester.tap(find.text('Pré-visualizar'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+    final texts = [
+      for (final w in tester.widgetList<RichText>(find.byType(RichText))) w.text.toPlainText(),
+    ];
+    expect(texts, containsAll(['Teste', 'forte'])); // no "#" or "**" left
+    await tester.tap(find.text('Editar'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('LineField border is controlHeight tall and keeps one line', (tester) async {
+    final controller = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(dark: true),
+      home: Scaffold(body: LineField(controller: controller, hint: 'Horas')),
+    ));
+    expect(tester.getSize(find.byType(InputDecorator)).height, controlHeight);
+    await tester.enterText(find.byType(TextField), '1:30\n');
+    expect(controller.text, '1:30');
+  });
+
+  test('hours count from the last status change or time entry, not a field-only change', () {
+    final issue = RedmineIssue({
+      'id': 1,
+      'created_on': '2026-10-01T08:00:00Z',
+      'journals': [
+        {
+          'created_on': '2026-10-05T09:00:00Z',
+          'user': {'name': 'Ana'},
+          'details': [
+            {'property': 'attr', 'name': 'status_id', 'old_value': '1', 'new_value': '2'},
+          ],
+        },
+        {
+          'created_on': '2026-10-05T15:00:00Z',
+          'user': {'name': 'Ana'},
+          'details': [
+            {'property': 'cf', 'name': '12', 'old_value': '0', 'new_value': '1'},
+          ],
+        },
+      ],
+    });
+    var (bases, base) = timeBases(issue, const []);
+    expect(bases.length, 3); // 2 journals + creation, newest first
+    expect(bases[base].at, DateTime.parse('2026-10-05T09:00:00Z').toLocal());
+    expect(bases[base].label, contains('Situação alterada'));
+
+    (bases, base) = timeBases(issue, [
+      {
+        'created_on': '2026-10-05T12:00:00Z',
+        'hours': 1.5,
+        'user': {'name': 'Bia'}
+      },
+    ]);
+    expect(bases[base].at, DateTime.parse('2026-10-05T12:00:00Z').toLocal());
+    expect(bases[base].label, contains('Horas lançadas (1,5 h)'));
+  });
+
+  test('business hours split counted time into business and overtime', () {
+    const hours = BusinessHours(); // seg–sex 08–12 / 13–18
+    // Monday 2026-10-19.
+    var split = hours.split(DateTime(2026, 10, 19, 9), DateTime(2026, 10, 19, 11));
+    expect((split.business, split.extra), (const Duration(hours: 2), Duration.zero));
+    // Across lunch and past 18:00: lunch is a break, only 18–20 is overtime.
+    split = hours.split(DateTime(2026, 10, 19, 11), DateTime(2026, 10, 19, 20));
+    expect((split.business, split.extra), (const Duration(hours: 6), const Duration(hours: 2)));
+    // Started before lunch, sent after it.
+    split = hours.split(DateTime(2026, 10, 19, 11, 48), DateTime(2026, 10, 19, 13, 42));
+    expect((split.business, split.extra), (const Duration(minutes: 54), Duration.zero));
+    // Overnight: 17:00 Mon → 09:00 Tue.
+    split = hours.split(DateTime(2026, 10, 19, 17), DateTime(2026, 10, 20, 9));
+    expect((split.business, split.extra), (const Duration(hours: 2), const Duration(hours: 14)));
+    // Saturday is all overtime.
+    split = hours.split(DateTime(2026, 10, 24, 9), DateTime(2026, 10, 24, 12));
+    expect((split.business, split.extra), (Duration.zero, const Duration(hours: 3)));
+
+    // The real time, to the minute: no rounding, no minimum.
+    expect(fmtHm(const Duration(seconds: 59)), '');
+    expect(fmtHm(const Duration(minutes: 1)), '0:01');
+    expect(fmtHm(const Duration(minutes: 7, seconds: 40)), '0:07');
+    expect(fmtHm(const Duration(hours: 26, minutes: 38)), '26:38');
+    expect(parseHours(fmtHm(const Duration(hours: 1, minutes: 38))), closeTo(1.6333, 0.001));
+
+    // Days can differ; overlapping periods count once; invalid ones are ignored.
+    const custom = BusinessHours(periods: [
+      BusinessPeriod(days: {1, 2, 3, 4}, start: 8 * 60, end: 18 * 60),
+      BusinessPeriod(days: {5}, start: 8 * 60, end: 12 * 60),
+      BusinessPeriod(days: {1}, start: 17 * 60, end: 19 * 60),
+      BusinessPeriod(days: {6}, start: 12 * 60, end: 8 * 60),
+    ]);
+    expect([for (var d = 1; d <= 7; d++) custom.minutesOn(d) ~/ 60], [11, 10, 10, 10, 4, 0, 0]);
+    // Friday 2026-10-23, 11:00 → 14:00: one business hour.
+    split = custom.split(DateTime(2026, 10, 23, 11), DateTime(2026, 10, 23, 14));
+    expect((split.business, split.extra), (const Duration(hours: 1), const Duration(hours: 2)));
+
+    final restored = BusinessHours.fromJson(custom.toJson());
+    expect([for (final p in restored.periods) (p.days.length, p.start, p.end)],
+        [(4, 480, 1080), (1, 480, 720), (1, 1020, 1140), (1, 720, 480)]);
+    // First format: one weekday set for every period.
+    final legacy = BusinessHours.fromJson({
+      'weekdays': [1, 3],
+      'periods': [
+        [480, 720]
+      ],
+    });
+    expect(legacy.periods.single.days, {1, 3});
+    expect(legacy.periods.single.start, 480);
+  });
+
+  test('bank balance leaves out the paid months', () {
+    const entries = [
+      OvertimeEntry(day: '2026-08-10', hours: 2),
+      OvertimeEntry(day: '2026-09-03', hours: 3),
+      OvertimeEntry(day: '2026-10-01', hours: 1.5),
+    ];
+    expect(bankBalance(entries, {}), 6.5);
+    expect(bankBalance(entries, {'2026-09'}), 3.5);
+  });
+
+  testWidgets('a dialog stays in its tab while the sidebar opens another one', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ChangeNotifierProvider(
+      create: (_) => AppState(databaseService: DatabaseService.instance)
+        ..loading = false
+        ..settings = AppSettings(baseUrl: 'https://r.test', apiKey: 'k'),
+      child: const MaterialApp(home: HomeScreen()),
+    ));
+    final tabBar = find.byType(WorkspaceTabs<Object>);
+    Finder inTabs(Finder f) => find.descendant(of: tabBar, matching: f);
+
+    showAppDialog<void>(
+      tester.element(find.byType(StatGrid)),
+      (_) => const AppDialog(title: Text('Janela'), body: Text('dentro da aba')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('dentro da aba'), findsOneWidget);
+
+    // The backdrop covers only the tab: the sidebar still opens Logs.
+    await tester.tap(find.text('Logs'));
+    await tester.pumpAndSettle();
+    expect(inTabs(find.text('Logs')), findsOneWidget);
+    expect(find.text('dentro da aba'), findsNothing);
+
+    await tester.tap(inTabs(find.text('Monitoração')));
+    await tester.pumpAndSettle();
+    expect(find.text('dentro da aba'), findsOneWidget);
+
+    await tester.tap(inTabs(find.byIcon(Icons.close)).last);
+    await tester.pumpAndSettle();
+    expect(inTabs(find.text('Logs')), findsNothing);
+    expect(find.text('dentro da aba'), findsOneWidget);
+  });
+
+  testWidgets('WorkspaceTabs: arrows when they overflow; the selected tab is scrolled into view',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 400,
+            child: WorkspaceTabs<int>(
+              tabs: [for (var i = 0; i < 20; i++) (i, 'Aba $i', null)],
+              selected: 19,
+              onChanged: (_) {},
+              onClose: (_) {},
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    // Inside the scrolling area, between the arrows.
+    bool shown(String text) {
+      final view = tester.getRect(find.byType(SingleChildScrollView));
+      final rect = tester.getRect(find.text(text));
+      return rect.left >= view.left && rect.right <= view.right;
+    }
+
+    IconButton arrow(IconData icon) =>
+        tester.widget<IconButton>(find.widgetWithIcon(IconButton, icon));
+    expect(shown('Aba 19'), isTrue);
+    expect(arrow(Icons.chevron_right).onPressed, isNull);
+
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+    expect(shown('Aba 19'), isFalse);
+    expect(arrow(Icons.chevron_right).onPressed, isNotNull);
+  });
+
+  testWidgets('LinkedIssueList: header columns wide, stacked when narrow; prefix shown once',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final opened = <int>[];
+    final issue = RedmineIssue({
+      'id': 7,
+      'subject': '[Qualidade] Unificar listas',
+      'tracker': {'id': 1, 'name': 'Qualidade'},
+      'status': {'id': 1, 'name': 'Nova'},
+      'assigned_to': {'id': 1, 'name': 'André Cristen'},
+      'fixed_version': {'id': 1, 'name': 'backlog'},
+    });
+    Future<void> pump(double width) => tester.pumpWidget(MaterialApp(
+          theme: buildAppTheme(dark: true),
+          home: Scaffold(
+            body: SizedBox(
+              width: width,
+              child: LinkedIssueList(
+                rows: [
+                  ('Relacionada a', issue),
+                  ('Copiada de', RedmineIssue({'id': 8})),
+                ],
+                onOpen: (i) => opened.add(i.id),
+              ),
+            ),
+          ),
+        ));
+
+    await pump(1100);
+    expect(find.text('RESPONSÁVEL'), findsOneWidget);
+    expect(find.text('Unificar listas'), findsOneWidget);
+    expect(issue.subject, '[Qualidade] Unificar listas');
+    expect(find.text('—'), findsNWidgets(3)); // #8: no assignee, version or status
+
+    await pump(360); // throws on overflow
+    expect(find.text('RESPONSÁVEL'), findsNothing);
+    expect(find.text('Resp.'), findsNWidgets(2));
+
+    await tester.tap(find.text('Unificar listas'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(opened, [7, 8]);
   });
 }

@@ -255,7 +255,8 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
   }
 }
 
-Widget _unsupported(bool dark, String text) => Center(
+/// [detail] = the underlying error, shown small for diagnosis.
+Widget _unsupported(bool dark, String text, [String? detail]) => Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -264,6 +265,12 @@ Widget _unsupported(bool dark, String text) => Center(
           Text(text, style: AppText.captionLight(dark: dark)),
           const SizedBox(height: 4),
           Text('Use "Abrir no navegador".', style: AppText.microLabel(dark: dark)),
+          if (detail != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+              child:
+                  Text(detail, textAlign: TextAlign.center, style: AppText.microLabel(dark: dark)),
+            ),
         ],
       ),
     );
@@ -389,19 +396,25 @@ class _VideoViewState extends State<_VideoView> {
   @override
   void initState() {
     super.initState();
-    if (!_supported) return;
+    if (_supported) _open();
+  }
+
+  /// Downloaded first, then played from the file: streaming straight from
+  /// Redmine failed on macOS (AVPlayer needs range requests and its own TLS
+  /// rules; the download route may offer neither).
+  Future<void> _open() async {
     final settings = context.read<AppState>().settings;
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(RedmineApiService.absoluteUrl(settings.baseUrl, widget.url)),
-      httpHeaders: {'X-Redmine-API-Key': settings.apiKey},
-    );
-    _controller = controller;
-    controller.initialize().then((_) {
+    try {
+      final file = await RedmineApiService().downloadToTemp(settings, widget.url);
+      if (!mounted) return;
+      final controller = VideoPlayerController.file(file);
+      setState(() => _controller = controller);
+      controller.addListener(_onTick);
+      await controller.initialize();
       if (mounted) setState(() {});
-    }, onError: (Object e) {
-      if (mounted) setState(() => _error = '$e');
-    });
-    controller.addListener(_onTick);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
+    }
   }
 
   void _onTick() {
@@ -419,9 +432,12 @@ class _VideoViewState extends State<_VideoView> {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final controller = _controller;
-    if (controller == null) return _unsupported(dark, 'Vídeo não suportado nesta plataforma.');
-    if (_error != null) return _unsupported(dark, 'Não foi possível reproduzir o vídeo.');
-    if (!controller.value.isInitialized) return const Center(child: CircularProgressIndicator());
+    if (!_supported) return _unsupported(dark, 'Vídeo não suportado nesta plataforma.');
+    final error = _error ?? controller?.value.errorDescription;
+    if (error != null) return _unsupported(dark, 'Não foi possível reproduzir o vídeo.', error);
+    if (controller == null || !controller.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final playing = controller.value.isPlaying;
     return Column(
       children: [

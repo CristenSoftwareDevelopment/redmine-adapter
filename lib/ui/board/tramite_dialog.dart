@@ -11,14 +11,17 @@ import '../../services/theme_service.dart';
 import '../../state/app_state.dart';
 import '../components.dart';
 import '../ui_utils.dart';
+import 'issue_actions.dart';
+import 'issue_tree.dart';
+import 'note_editor.dart';
 import 'send_steps.dart';
 import 'time_entry_fields.dart';
 
 /// Trâmite on [issue] itself (a [HandoffRule] with `sameIssue`): status,
 /// assignee, a comment typed now and the hours spent, in one send.
-/// [issue] must be loaded with `include=journals`.
-Future<void> showTramiteDialog(BuildContext context, RedmineIssue issue, HandoffRule rule) =>
-    showAppDialog<void>(context, (_) => _TramiteDialog(issue: issue, rule: rule));
+/// [issue] must be loaded with `include=journals`. True when everything was sent.
+Future<bool> showTramiteDialog(BuildContext context, RedmineIssue issue, HandoffRule rule) async =>
+    await showAppDialog<bool>(context, (_) => _TramiteDialog(issue: issue, rule: rule)) ?? false;
 
 class _TramiteDialog extends StatefulWidget {
   const _TramiteDialog({required this.issue, required this.rule});
@@ -37,40 +40,82 @@ class _TramiteDialogState extends State<_TramiteDialog> {
         .replaceAll('{{tarefa}}', '#${widget.issue.id}')
         .replaceAll('{{titulo}}', widget.issue.subject),
   );
+  final List<PendingFile> _files = [];
   final _hours = TextEditingController();
+  final _extra = TextEditingController();
   final _timeComment = TextEditingController();
 
   /// Null = keep the issue's current value.
   late int? _statusId = widget.rule.statusId;
   late int? _assigneeId = widget.rule.assigneeId;
+  int? _versionId;
   late int? _timeActivityId = widget.rule.timeActivityId;
 
   List<(int, String)>? _statuses;
   List<TeamMember>? _members;
+  List<(int, String)>? _versions;
   List<(int, String)>? _activities;
   String? _loadError;
+
+  /// Rules with `bulk`: linked issues that get the same update when checked.
+  IssueTree? _tree;
+  String? _treeError;
+  final Set<int> _checked = {};
   bool _sending = false;
   final Map<String, StepResult> _results = {};
 
-  /// Last update of the issue: the hours default to the time since then.
-  late final DateTime? _lastUpdate = () {
-    final journals = (widget.issue.json['journals'] as List? ?? const []).cast<Map>();
-    return DateTime.tryParse('${journals.lastOrNull?['created_on']}') ?? widget.issue.updatedOn;
-  }();
+  /// Where the hours count from ([timeBases]); null while loading.
+  List<TimeBase>? _bases;
+  int? _base;
 
   @override
   void initState() {
     super.initState();
-    if (widget.rule.logTime && _lastUpdate != null) {
-      _hours.text = elapsedHm(_lastUpdate, DateTime.now());
-    }
+    if (widget.rule.logTime) _loadBases();
     _load();
+    if (widget.rule.bulk) _loadTree();
   }
+
+  /// Rules prefill the hours since the default base; the generic "Novo
+  /// trâmite" starts empty (optional hours) but still offers the picker.
+  Future<void> _loadBases() async {
+    final (bases, base) = await loadTimeBases(context.read<AppState>().settings, widget.issue);
+    if (!mounted) return;
+    setState(() {
+      _bases = bases;
+      _base = base;
+      final untouched = _hours.text.isEmpty && _extra.text.isEmpty;
+      if (widget.rule != newTramiteRule && untouched && bases.isNotEmpty) {
+        fillHoursFrom(context, bases[base].at, _hours, _extra);
+      }
+    });
+  }
+
+  Future<void> _loadTree() async {
+    try {
+      final tree = await IssueTree.load(context.read<AppState>().settings, widget.issue);
+      if (!mounted) return;
+      setState(() {
+        _tree = tree;
+        _checked.add(widget.issue.id);
+      });
+    } catch (error) {
+      if (mounted) setState(() => _treeError = '$error'.replaceFirst('Exception: ', ''));
+    }
+  }
+
+  /// Checked linked issues besides the opened one.
+  List<RedmineIssue> get _extras => [
+        if (_tree case final tree?)
+          for (final r in tree.rows)
+            if (r.issue.id != widget.issue.id && _checked.contains(r.issue.id)) r.issue,
+      ];
 
   @override
   void dispose() {
     _comment.dispose();
     _hours.dispose();
+    _extra.dispose();
     _timeComment.dispose();
     super.dispose();
   }
@@ -85,42 +130,55 @@ class _TramiteDialogState extends State<_TramiteDialog> {
             .listNamed(
                 settings, '/enumerations/time_entry_activities.json', 'time_entry_activities')
             .catchError((Object _) => const <(int, String)>[]),
+        _api
+            .listVersions(settings, widget.issue.refId('project')!)
+            .catchError((Object _) => const <(int, String)>[]),
       ]);
       if (!mounted) return;
       setState(() {
         _statuses = results[0] as List<(int, String)>;
         _members = results[1] as List<TeamMember>;
         _activities = results[2] as List<(int, String)>;
+        _versions = results[3] as List<(int, String)>;
       });
     } catch (error) {
       if (mounted) setState(() => _loadError = '$error'.replaceFirst('Exception: ', ''));
     }
   }
 
-  /// The update (comment/status/assignee) then the hours; see [runSendSteps].
+  /// The update (comment, attachments, status, assignee, version) on the
+  /// opened issue and each checked extra, then the hours; see [runSendSteps].
   List<SendStep> _steps(AppSettings settings) {
     final id = widget.issue.id;
     final notes = _comment.text.trim();
-    final hours = parseHours(_hours.text);
+    final hours = totalHours(_hours, _extra);
+    final extraHours = parseHours(_extra.text);
+    // Attachments go up again per issue: an upload token is used once.
+    Future<String> apply(int issueId) async {
+      final extra = {
+        if (notes.isNotEmpty) 'notes': notes,
+        if (_assigneeId != null) 'assigned_to_id': _assigneeId,
+        if (_versionId != null) 'fixed_version_id': _versionId,
+        if (_files.isNotEmpty) 'uploads': await uploadFiles(settings, _files),
+      };
+      if (_statusId == null) {
+        await _api.putJson(settings, '/issues/$issueId.json', {'issue': extra});
+        return '';
+      }
+      return await _api.setIssueStatus(settings, issueId, _statusId!, extra: extra)
+          ? ''
+          : 'enviado, mas o Redmine não aplicou a situação (workflow ou sem permissão).';
+    }
+
+    final update = notes.isNotEmpty ||
+        _files.isNotEmpty ||
+        _statusId != null ||
+        _assigneeId != null ||
+        _versionId != null;
     return [
-      if (notes.isNotEmpty || _statusId != null || _assigneeId != null)
-        (
-          'update',
-          'Trâmite em #$id',
-          () async {
-            final extra = {
-              if (notes.isNotEmpty) 'notes': notes,
-              if (_assigneeId != null) 'assigned_to_id': _assigneeId,
-            };
-            if (_statusId == null) {
-              await _api.putJson(settings, '/issues/$id.json', {'issue': extra});
-              return '';
-            }
-            return await _api.setIssueStatus(settings, id, _statusId!, extra: extra)
-                ? ''
-                : 'enviado, mas o Redmine não aplicou a situação (workflow ou sem permissão).';
-          },
-        ),
+      if (update) ('update', 'Trâmite em #$id', () => apply(id)),
+      if (update)
+        for (final i in _extras) ('update:${i.id}', 'Trâmite em #${i.id}', () => apply(i.id)),
       if (widget.rule.logTime && hours != null && _timeActivityId != null)
         (
           'time',
@@ -137,12 +195,51 @@ class _TramiteDialogState extends State<_TramiteDialog> {
             return '';
           },
         ),
+      if (widget.rule.logTime && hours != null && _timeActivityId != null && extraHours != null)
+        overtimeStep(context, _results, extraHours, id, _timeComment.text.trim()),
+    ];
+  }
+
+  /// Project members as choices, plus the rule's default assignee when it
+  /// isn't a member of this project.
+  List<(int, String)> get _memberOptions => [
+        for (final m in _members ?? const <TeamMember>[]) (m.id, m.name),
+        if (_assigneeId != null && !(_members ?? const []).any((m) => m.id == _assigneeId))
+          (_assigneeId!, widget.rule.assigneeName ?? '#$_assigneeId'),
+      ];
+
+  /// Field changes this send makes (and where the comment repeats), asked
+  /// before the first run.
+  List<String> get _changes {
+    List<String> lines(RedmineIssue issue, [String prefix = '']) => changeLines(
+          issue,
+          status: _statusId,
+          assignee: _assigneeId,
+          version: _versionId,
+          statuses: _statuses,
+          members: _memberOptions,
+          versions: _versions,
+          prefix: prefix,
+        );
+    final extras = _extras;
+    return [
+      ...lines(widget.issue),
+      for (final i in extras) ...lines(i, '#${i.id} '),
+      if (extras.isNotEmpty && _comment.text.trim().isNotEmpty)
+        'Comentário também em ${extras.map((i) => '#${i.id}').join(', ')}',
     ];
   }
 
   Future<void> _send() async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final changes = _changes;
+    if (_results.isEmpty &&
+        changes.isNotEmpty &&
+        !await confirmChanges(context, '${widget.rule.name} · #${widget.issue.id}', changes)) {
+      return;
+    }
+    if (!mounted) return;
     final steps = _steps(context.read<AppState>().settings);
     setState(() => _sending = true);
     final clean = await runSendSteps(steps, _results, () {
@@ -151,12 +248,15 @@ class _TramiteDialogState extends State<_TramiteDialog> {
     if (!mounted) return;
     setState(() => _sending = false);
     if (clean) {
-      navigator.pop();
+      navigator.pop(true);
       messenger.showSnackBar(
         SnackBar(content: Text('Feito: ${steps.map((s) => s.$2).join(' · ')}.')),
       );
     }
   }
+
+  /// Something already sent: the opener reloads even on Cancelar.
+  void _close() => Navigator.of(context).pop(_results.values.any((r) => r.done));
 
   @override
   Widget build(BuildContext context) {
@@ -168,12 +268,7 @@ class _TramiteDialogState extends State<_TramiteDialog> {
       for (final (key, _, _) in _steps(context.watch<AppState>().settings))
         if (_results[key]?.done != true) key,
     ];
-    // The rule's default assignee may not be a member of this project.
-    final members = [
-      for (final m in _members ?? const <TeamMember>[]) (m.id, m.name),
-      if (_assigneeId != null && !(_members ?? const []).any((m) => m.id == _assigneeId))
-        (_assigneeId!, widget.rule.assigneeName ?? '#$_assigneeId'),
-    ];
+    final members = _memberOptions;
 
     return AppDialog(
       title: Row(children: [Text('${widget.rule.name} · '), IssueNumber(issue.id)]),
@@ -209,17 +304,47 @@ class _TramiteDialogState extends State<_TramiteDialog> {
                 onChanged: (v) => setState(() => _assigneeId = v),
               ),
             ),
+            gap,
+            LabeledField(
+              label: 'Versão',
+              child: SearchSelect(
+                value: _versionId,
+                options: _versions ?? const [],
+                none: 'Manter a atual (${issue.nameOf('fixed_version') ?? 'nenhuma'})',
+                onChanged: (v) => setState(() => _versionId = v),
+              ),
+            ),
+            if (widget.rule.bulk) ...[
+              gap,
+              LabeledField(
+                label: 'Aplicar também em',
+                child: _treeError != null
+                    ? Text(
+                        'Não foi possível carregar as tarefas ligadas: $_treeError',
+                        style: AppText.microLabel(dark: dark)
+                            .copyWith(color: AppColors.danger(dark: dark)),
+                      )
+                    : _tree == null
+                        ? const LinearProgressIndicator(minHeight: 2)
+                        : IssueTreeList(
+                            tree: _tree!,
+                            checked: _checked,
+                            locked: {issue.id},
+                            onChanged: () => setState(() {}),
+                          ),
+              ),
+            ],
           ],
           gap,
           LabeledField(
             label: 'Comentário',
-            child: TextField(
+            child: NoteEditor(
               controller: _comment,
+              files: _files,
+              attachments: (issue.json['attachments'] as List? ?? const []).cast<Map>(),
               autofocus: true,
-              minLines: 4,
-              maxLines: 12,
-              decoration: const InputDecoration(hintText: 'Escreva o trâmite…'),
-              onChanged: (_) => setState(() {}),
+              hint: 'Escreva o trâmite…',
+              onChanged: () => setState(() {}),
             ),
           ),
           if (widget.rule.logTime) ...[
@@ -228,12 +353,15 @@ class _TramiteDialogState extends State<_TramiteDialog> {
               label: 'Apontar horas',
               child: TimeEntryFields(
                 hours: _hours,
+                extra: _extra,
                 comment: _timeComment,
                 activities: _activities,
                 activityId: _timeActivityId,
                 onActivity: (v) => setState(() => _timeActivityId = v),
                 onChanged: () => setState(() {}),
-                since: _lastUpdate,
+                bases: _bases,
+                base: _base,
+                onBase: (i) => setState(() => _base = i),
               ),
             ),
           ],
@@ -241,16 +369,13 @@ class _TramiteDialogState extends State<_TramiteDialog> {
         ],
       ),
       footer: [
-        OutlinedButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
+        OutlinedButton(onPressed: _close, child: const Text('Cancelar')),
         if (_results.isNotEmpty && pending.isEmpty)
-          FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Fechar'))
+          FilledButton(onPressed: _close, child: const Text('Fechar'))
         else
           FilledButton.icon(
             onPressed: pending.isEmpty ||
-                    widget.rule.logTime && timeEntryBlocked(_hours, _timeActivityId) ||
+                    widget.rule.logTime && timeEntryBlocked(_hours, _timeActivityId, _extra) ||
                     _sending
                 ? null
                 : _send,

@@ -17,6 +17,7 @@ class _WebAlertNotifierImpl implements AlertNotifierImpl {
     required AlertEvent alert,
     required String title,
     required String body,
+    void Function()? onClick,
   }) async {
     final granted = await _ensurePermission();
     if (!granted) {
@@ -27,7 +28,7 @@ class _WebAlertNotifierImpl implements AlertNotifierImpl {
       title,
       body: body,
       tag: 'redmine-monitor-${alert.queryId}',
-    );
+    ).onClick.listen((_) => onClick?.call());
   }
 
   Future<bool> _ensurePermission() async {

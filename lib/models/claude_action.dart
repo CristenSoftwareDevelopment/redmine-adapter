@@ -16,6 +16,9 @@ class ClaudeAction {
     this.statusId,
     this.icon,
     this.openInApp = false,
+    this.trackerIds = const [],
+    this.statusIds = const [],
+    this.order,
   });
 
   final String name;
@@ -34,6 +37,21 @@ class ClaudeAction {
   /// ([claudeDesktopLink]) instead of a terminal; [cwd] is the fallback.
   final bool openInApp;
 
+  /// Trackers and statuses where the button shows up; empty = all.
+  final List<int> trackerIds;
+  final List<int> statusIds;
+
+  /// Position among all issue action buttons (Automações › Ordem dos botões);
+  /// null = never ordered, after the ordered ones.
+  final int? order;
+
+  /// The button shows on an issue of [trackerId] in [statusId].
+  bool showsOn(int? trackerId, int statusId) =>
+      (trackerIds.isEmpty || trackerIds.contains(trackerId)) &&
+      (statusIds.isEmpty || statusIds.contains(statusId));
+
+  ClaudeAction withOrder(int? order) => fromJson({...toJson(), 'order': order});
+
   Map<String, Object?> toJson() => {
         'name': name,
         'cwd': cwd,
@@ -41,6 +59,9 @@ class ClaudeAction {
         'statusId': statusId,
         'icon': icon,
         'openInApp': openInApp,
+        'trackerIds': trackerIds,
+        'statusIds': statusIds,
+        'order': order,
       };
 
   static ClaudeAction fromJson(Map<String, dynamic> json) => ClaudeAction(
@@ -50,6 +71,9 @@ class ClaudeAction {
         statusId: json['statusId'] as int?,
         icon: json['icon'] as String?,
         openInApp: json['openInApp'] == true,
+        trackerIds: (json['trackerIds'] as List? ?? const []).whereType<int>().toList(),
+        statusIds: (json['statusIds'] as List? ?? const []).whereType<int>().toList(),
+        order: json['order'] as int?,
       );
 
   static String listToJson(List<ClaudeAction> actions) =>

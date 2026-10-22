@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -124,6 +125,49 @@ class RedmineApiService {
     return _bytesCache[key] = future;
   }
 
+  /// Streams an attachment of the configured Redmine to a temp file (kept and
+  /// reused while it exists), for players that can't send the API key or need
+  /// range requests, like AVPlayer. Not available on the web.
+  // ponytail: temp files are left to the OS; clean them if disk use matters.
+  Future<File> downloadToTemp(AppSettings settings, String url) async {
+    final uri = Uri.parse(absoluteUrl(settings.baseUrl, url));
+    if (uri.host != Uri.parse(settings.baseUrl).host) {
+      throw ArgumentError('Fora do Redmine configurado: ${uri.host}');
+    }
+    // The name keeps the extension: players pick the format by it.
+    final name = uri.pathSegments.isEmpty ? 'arquivo' : uri.pathSegments.last;
+    final file = File('${Directory.systemTemp.path}/redmine-${uri.toString().hashCode}-$name');
+    if (await file.exists()) return file;
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', uri)..headers['X-Redmine-API-Key'] = settings.apiKey;
+      final response = await client.send(request).timeout(_requestTimeout);
+      if (response.statusCode >= 300) {
+        _ensureOk(http.Response('', response.statusCode));
+      }
+      // Written aside and renamed at the end: a broken download is never reused.
+      final part = File('${file.path}.part');
+      await response.stream.pipe(part.openWrite());
+      return await part.rename(file.path);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Uploads a file (`POST /uploads.json`) and returns its token, which goes in
+  /// an issue update as `uploads: [{token, filename, content_type}]`.
+  Future<String> upload(AppSettings settings, String filename, Uint8List bytes) async {
+    final response = await _send(
+      settings.apiKey,
+      Uri.parse(absoluteUrl(
+          settings.baseUrl, '/uploads.json?filename=${Uri.encodeQueryComponent(filename)}')),
+      method: 'POST',
+      bytes: bytes,
+    );
+    _ensureOk(response);
+    return '${jsonDecode(response.body)['upload']['token']}';
+  }
+
   /// POST a JSON [body] to [path] (e.g. a new time entry; Redmine answers 201).
   Future<void> postJson(
     AppSettings settings,
@@ -170,6 +214,15 @@ class RedmineApiService {
   Future<List<(int, String)>> listNamed(AppSettings settings, String path, String key) async {
     final json = await getJson(settings, path);
     return [for (final i in (json[key] as List).cast<Map>()) (i['id'] as int, '${i['name']}')];
+  }
+
+  /// Open versions usable in [projectId] (shared ones included), for `fixed_version_id`.
+  Future<List<(int, String)>> listVersions(AppSettings settings, int projectId) async {
+    final json = await getJson(settings, '/projects/$projectId/versions.json');
+    return [
+      for (final v in (json['versions'] as List? ?? const []).cast<Map>())
+        if (v['status'] == 'open') (v['id'] as int, '${v['name']}'),
+    ];
   }
 
   /// Projects visible to the user, sorted by name.
@@ -314,13 +367,15 @@ class RedmineApiService {
   }
 
   /// Single HTTP entry point: web goes through the local CORS proxy,
-  /// desktop/mobile hit Redmine directly. 5xx and network failures throw
+  /// desktop/mobile hit Redmine directly. [bytes] is sent as a binary body
+  /// (uploads) instead of [body] as JSON. 5xx and network failures throw
   /// [RetryableRequestException].
   Future<http.Response> _send(
     String apiKey,
     Uri uri, {
     String method = 'GET',
     Map<String, dynamic>? body,
+    Uint8List? bytes,
   }) async {
     try {
       final http.Response response;
@@ -337,6 +392,7 @@ class RedmineApiService {
                 'apiKey': apiKey,
                 'method': method,
                 if (body != null) 'body': body,
+                if (bytes != null) 'bodyBase64': base64Encode(bytes),
               }),
             )
             .timeout(_requestTimeout);
@@ -347,6 +403,8 @@ class RedmineApiService {
         };
         final jsonHeaders = {...headers, 'Content-Type': 'application/json'};
         response = await switch (method) {
+          'POST' when bytes != null => http.post(uri,
+              headers: {...headers, 'Content-Type': 'application/octet-stream'}, body: bytes),
           'PUT' => http.put(uri, headers: jsonHeaders, body: jsonEncode(body)),
           'POST' => http.post(uri, headers: jsonHeaders, body: jsonEncode(body)),
           _ => http.get(uri, headers: headers),

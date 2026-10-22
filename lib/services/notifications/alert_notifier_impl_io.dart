@@ -25,13 +25,14 @@ class _DesktopAlertNotifierImpl implements AlertNotifierImpl {
     required AlertEvent alert,
     required String title,
     required String body,
+    void Function()? onClick,
   }) async {
     await init();
 
     final notification = LocalNotification(
       title: title,
       body: body,
-    );
+    )..onClick = onClick;
 
     await notification.show();
   }

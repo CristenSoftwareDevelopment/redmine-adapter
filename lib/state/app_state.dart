@@ -6,12 +6,15 @@ import 'package:flutter/services.dart';
 import '../models/alert_event.dart';
 import '../models/alert_rule.dart';
 import '../models/app_settings.dart';
+import '../models/business_hours.dart';
 import '../models/claude_action.dart';
+import '../models/custom_field.dart';
 import '../models/handoff_rule.dart';
 import '../models/monitor_log.dart';
 import '../models/monitored_query.dart';
 import '../models/query_health.dart';
 import '../models/team.dart';
+import '../models/time_entry.dart';
 import '../services/database_service.dart';
 import '../services/monitor_service.dart';
 import '../services/notifications/alert_notifier.dart';
@@ -45,6 +48,7 @@ class AppState extends ChangeNotifier {
   List<AlertEvent> alerts = const [];
   List<MonitorLog> monitorLogs = const [];
   List<Team> teams = const [];
+  List<OvertimeEntry> overtime = const [];
 
   bool loading = true;
   bool monitoring = false;
@@ -62,9 +66,7 @@ class AppState extends ChangeNotifier {
   /// True when the app has not been configured yet (no baseUrl or apiKey),
   /// OR when stored credentials were rejected by Redmine on startup.
   bool get needsOnboarding =>
-      settings.baseUrl.trim().isEmpty ||
-      settings.apiKey.trim().isEmpty ||
-      invalidCredentials;
+      settings.baseUrl.trim().isEmpty || settings.apiKey.trim().isEmpty || invalidCredentials;
 
   Future<void> init() async {
     try {
@@ -126,6 +128,7 @@ class AppState extends ChangeNotifier {
     alerts = await _databaseService.listAlerts();
     monitorLogs = await _databaseService.listMonitorLogs();
     teams = await _databaseService.listTeams();
+    overtime = await _databaseService.listOvertime();
     notifyListeners();
   }
 
@@ -158,6 +161,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     await _databaseService.saveSettings(next);
   }
+
+  /// Sidebar boards dragged into a new order ([agileQueryId] = Ágil).
+  Future<void> setBoardOrder(List<int> ids) => savePreferences(settings.copyWith(boardOrder: ids));
 
   /// Validates credentials against /my/account.json, saves settings with the
   /// resolved account name, then starts the monitor.
@@ -193,6 +199,23 @@ class AppState extends ChangeNotifier {
     await _databaseService.deleteTeam(id);
     await refreshData();
   }
+
+  Future<void> addOvertime(OvertimeEntry entry) async {
+    await _databaseService.insertOvertime(entry);
+    overtime = await _databaseService.listOvertime();
+    notifyListeners();
+  }
+
+  Future<void> deleteOvertime(int id) async {
+    await _databaseService.deleteOvertime(id);
+    overtime = await _databaseService.listOvertime();
+    notifyListeners();
+  }
+
+  /// Marks [month] (`yyyy-MM`) as paid out, or back in the bank.
+  Future<void> setMonthPaid(String month, bool paid) => savePreferences(settings.copyWith(
+        overtimePaid: paid ? {...settings.overtimePaid, month} : ({...settings.overtimePaid}..remove(month)),
+      ));
 
   Future<void> signOut() async {
     final clearedSettings = settings.copyWith(
@@ -274,6 +297,16 @@ class AppState extends ChangeNotifier {
     await refreshData();
   }
 
+  /// The board just read [count] issues of [query]: the sidebar count follows
+  /// at once, without an alert (the change happened in front of the user).
+  Future<void> syncQueryCount(MonitoredQuery query, int count) async {
+    final id = query.id;
+    if (id == null || id == agileQueryId) return;
+    if (queries.where((q) => q.id == id).firstOrNull?.lastCount == count) return;
+    await _monitorService.syncCount(id, count);
+    await refreshData();
+  }
+
   Future<void> deleteQuery(int id) async {
     await _databaseService.deleteQuery(id);
     await refreshData();
@@ -349,7 +382,10 @@ class AppState extends ChangeNotifier {
         'notificationDecreaseBodyTemplate': settings.notificationDecreaseBodyTemplate,
         'handoffRules': settings.handoffRules.map((r) => r.toJson()).toList(),
         'claudeActions': settings.claudeActions.map((a) => a.toJson()).toList(),
+        'customFields': settings.customFields.map((f) => f.toJson()).toList(),
         'agileBoard': settings.agileBoard.toJson(),
+        'businessHours': settings.businessHours.toJson(),
+        'overtimePaid': settings.overtimePaid.toList()..sort(),
       },
       'queries': queries
           .map((q) => {
@@ -374,6 +410,7 @@ class AppState extends ChangeNotifier {
                 'members': t.members.map((m) => m.toJson()).toList(),
               })
           .toList(),
+      'overtime': overtime.map((o) => o.toDbMap()).toList(),
     };
     return const JsonEncoder.withIndent('  ').convert(payload);
   }
@@ -405,19 +442,15 @@ class AppState extends ChangeNotifier {
       accountName: settingsMap['accountName'] as String?,
       themeMode: (settingsMap['themeMode'] as String?) ?? defaultThemeMode,
       notificationTitleTemplate:
-          (settingsMap['notificationTitleTemplate'] ?? defaultNotificationTitleTemplate)
-              .toString(),
+          (settingsMap['notificationTitleTemplate'] ?? defaultNotificationTitleTemplate).toString(),
       notificationBodyTemplate:
-          (settingsMap['notificationBodyTemplate'] ?? defaultNotificationBodyTemplate)
-              .toString(),
+          (settingsMap['notificationBodyTemplate'] ?? defaultNotificationBodyTemplate).toString(),
       notificationIncreaseTitleTemplate:
           settingsMap['notificationIncreaseTitleTemplate'] as String?,
-      notificationIncreaseBodyTemplate:
-          settingsMap['notificationIncreaseBodyTemplate'] as String?,
+      notificationIncreaseBodyTemplate: settingsMap['notificationIncreaseBodyTemplate'] as String?,
       notificationDecreaseTitleTemplate:
           settingsMap['notificationDecreaseTitleTemplate'] as String?,
-      notificationDecreaseBodyTemplate:
-          settingsMap['notificationDecreaseBodyTemplate'] as String?,
+      notificationDecreaseBodyTemplate: settingsMap['notificationDecreaseBodyTemplate'] as String?,
       handoffRules: settingsMap['handoffRules'] is List
           ? [
               for (final r in (settingsMap['handoffRules'] as List).whereType<Map>())
@@ -430,10 +463,22 @@ class AppState extends ChangeNotifier {
                 ClaudeAction.fromJson(Map<String, dynamic>.from(a)),
             ]
           : settings.claudeActions,
+      customFields: settingsMap['customFields'] is List
+          ? [
+              for (final f in (settingsMap['customFields'] as List).whereType<Map>())
+                CustomFieldDef.fromJson(f),
+            ]
+          : settings.customFields,
       agileBoard: settingsMap['agileBoard'] is Map
           ? AgileBoard.fromJson(Map<String, dynamic>.from(settingsMap['agileBoard'] as Map))
           : settings.agileBoard,
       sidebarWidth: settings.sidebarWidth,
+      businessHours: settingsMap['businessHours'] is Map
+          ? BusinessHours.fromJson(Map<String, dynamic>.from(settingsMap['businessHours'] as Map))
+          : settings.businessHours,
+      overtimePaid: settingsMap['overtimePaid'] is List
+          ? (settingsMap['overtimePaid'] as List).whereType<String>().toSet()
+          : settings.overtimePaid,
     );
 
     // Parse everything before touching the database, so a bad entry
@@ -488,6 +533,15 @@ class AppState extends ChangeNotifier {
               ),
           ];
 
+    // Backups without overtime keep the current entries.
+    final overtimeList = parsed['overtime'];
+    final importedOvertime = overtimeList is! List
+        ? null
+        : [
+            for (final o in overtimeList.whereType<Map>())
+              OvertimeEntry.fromDbMap(Map<String, Object?>.from(o)..remove('id')),
+          ];
+
     await _databaseService.saveSettings(importedSettings);
     await _databaseService.clearAlerts();
     await _databaseService.clearQueries();
@@ -498,6 +552,12 @@ class AppState extends ChangeNotifier {
       await _databaseService.clearTeams();
       for (final team in teams) {
         await _databaseService.saveTeam(team);
+      }
+    }
+    if (importedOvertime != null) {
+      await _databaseService.clearOvertime();
+      for (final entry in importedOvertime) {
+        await _databaseService.insertOvertime(entry);
       }
     }
 
@@ -526,9 +586,7 @@ class AppState extends ChangeNotifier {
         lastCheckedAt: query.lastCheckedAt,
         lastCount: query.lastCount,
         lastStatus: failed ? 'error' : latestLog.level,
-        lastMessage: failed
-            ? query.lastError
-            : (latestLog.id == null ? null : latestLog.message),
+        lastMessage: failed ? query.lastError : (latestLog.id == null ? null : latestLog.message),
       );
     }).toList();
   }

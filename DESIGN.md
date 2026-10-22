@@ -33,8 +33,12 @@ rótulos 12 · subtítulos 13 · rótulos de seção do menu 10/600 com espaçam
 
 - Controles (campos, botões, selects): raio 8, altura 40.
 - Painéis: raio 12, borda de 1px, sem sombra, 20px entre painéis.
-- Diálogos: raio 14, borda `dialogBorder`, cabeçalho e rodapé fixos, fundo desfocado; 85% da
-  largura da janela (confirmações sim/não: 460).
+- Diálogos: raio 14, borda `dialogBorder`, cabeçalho e rodapé fixos, fundo desfocado; abrem
+  dentro da aba (cobrem só ela) com 85% da sua largura (confirmações sim/não: 460).
+- Abas do workspace: `WorkspaceTabs`, estilo pasta no topo da área principal — trilho `well`,
+  inativas `sunken` com borda, ativa na cor da página (sem linha embaixo, emenda no conteúdo) com
+  faixa `accent` de 3px no topo; × ou clique do meio fecha; setas ‹ › (e a roda do mouse) quando
+  não cabem, e a aba ativa sempre rola para a vista.
 - Página: padding 28/34 (24 abaixo de 1100px), sem largura máxima.
 - Menu lateral: 240px, recolhe para 75px (só ícones) abaixo de 1100px.
 
@@ -44,7 +48,9 @@ rótulos 12 · subtítulos 13 · rótulos de seção do menu 10/600 com espaçam
 (controles, ações à direita, linha "Mais filtros", resumo com chips e "Limpar filtros") ·
 `SearchField` · `SelectBox` · `StatCard` em `StatGrid` (4 colunas, 2 abaixo de 700px) ·
 `ListRow` com `IconBox` e ações `IconBtn` · `Tag` · `AppTabs` (alternâncias como
-Board/Lista) · `SegmentButtons` (escolha única com destaque, como períodos) ·
+Board/Lista) · `LineTabs` (abas sublinhadas com contador, seções do diálogo da tarefa) ·
+`WorkspaceTabs` (abas do workspace) ·
+`SegmentButtons` (escolha única com destaque, como períodos) · `DateSelect` (data com calendário) ·
 `EmptyState` · `SectionTitle` · `Notice` · `AppDialog` com `showAppDialog`.
 
 ## Regras

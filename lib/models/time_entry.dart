@@ -69,10 +69,40 @@ double? parseHours(String text) {
   return hours == null || hours <= 0 ? null : hours;
 }
 
-/// Wall-clock time from [since] to [now] as `h:mm`, rounded to 15 minutes
-/// (at least 0:15), ready for [parseHours].
-String elapsedHm(DateTime since, DateTime now) {
-  final quarters = (now.difference(since).inMinutes / 15).round();
-  final minutes = (quarters < 1 ? 1 : quarters) * 15;
-  return '${minutes ~/ 60}:${(minutes % 60).toString().padLeft(2, '0')}';
+/// [d] as `h:mm` to the minute, ready for [parseHours]; empty under a minute.
+String fmtHm(Duration d) {
+  final minutes = d.inMinutes;
+  return minutes <= 0 ? '' : '${minutes ~/ 60}:${(minutes % 60).toString().padLeft(2, '0')}';
 }
+
+/// Overtime kept in the local database (Tempo gasto › Horas extras); the
+/// Redmine time entry has the total hours.
+class OvertimeEntry {
+  const OvertimeEntry({this.id, required this.day, required this.hours, this.issueId, this.note = ''});
+
+  final int? id;
+
+  /// `yyyy-MM-dd`.
+  final String day;
+  final double hours;
+  final int? issueId;
+  final String note;
+
+  /// `yyyy-MM`.
+  String get month => day.substring(0, 7);
+
+  static OvertimeEntry fromDbMap(Map<String, Object?> map) => OvertimeEntry(
+        id: map['id'] as int?,
+        day: map['day'] as String,
+        hours: (map['hours'] as num).toDouble(),
+        issueId: map['issue_id'] as int?,
+        note: map['note'] as String? ?? '',
+      );
+
+  Map<String, Object?> toDbMap() =>
+      {'day': day, 'hours': hours, 'issue_id': issueId, 'note': note};
+}
+
+/// Hours in the bank: overtime of the months not in [paid] (`yyyy-MM`).
+double bankBalance(Iterable<OvertimeEntry> entries, Set<String> paid) =>
+    entries.where((e) => !paid.contains(e.month)).fold(0.0, (sum, e) => sum + e.hours);

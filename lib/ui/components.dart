@@ -4,8 +4,10 @@
 
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show SelectedContent;
+import 'package:flutter/services.dart';
 
 import '../services/theme_service.dart';
 import 'ui_utils.dart';
@@ -245,6 +247,49 @@ class LabeledField extends StatelessWidget {
 
 const controlHeight = 40.0;
 
+/// Single-line text field exactly [controlHeight] tall, like the selects beside it.
+/// The border only fills a fixed height when the field `expands` (padding or
+/// `InputDecoration.constraints` keep the text's own height), so newlines are
+/// filtered out instead of relying on `maxLines: 1`.
+class LineField extends StatelessWidget {
+  const LineField({
+    super.key,
+    this.controller,
+    this.initialValue,
+    this.hint,
+    this.onChanged,
+    this.keyboardType,
+    this.inputFormatters = const [],
+  });
+
+  final TextEditingController? controller;
+  final String? initialValue;
+  final String? hint;
+  final ValueChanged<String>? onChanged;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter> inputFormatters;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: controlHeight,
+        child: TextFormField(
+          controller: controller,
+          initialValue: initialValue,
+          expands: true,
+          maxLines: null,
+          keyboardType: keyboardType ?? TextInputType.text,
+          textAlignVertical: TextAlignVertical.center,
+          inputFormatters: [FilteringTextInputFormatter.deny('\n'), ...inputFormatters],
+          decoration: InputDecoration(
+            hintText: hint,
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          onChanged: onChanged,
+        ),
+      );
+}
+
 /// Text field with a search icon, 40px tall.
 class SearchField extends StatelessWidget {
   const SearchField({
@@ -358,6 +403,7 @@ class SearchSelect extends StatefulWidget {
     required this.onChanged,
     this.none,
     this.hint = 'Selecione…',
+    this.typedId = false,
   });
 
   final int? value;
@@ -365,6 +411,10 @@ class SearchSelect extends StatefulWidget {
   final ValueChanged<int?> onChanged;
   final String? none;
   final String hint;
+
+  /// A number typed in the search (`123` or `#123`) that isn't an option can
+  /// be picked as is (issue IDs outside the list).
+  final bool typedId;
 
   @override
   State<SearchSelect> createState() => _SearchSelectState();
@@ -401,7 +451,9 @@ class _SearchSelectState extends State<SearchSelect> {
     final entries = _entries;
     final current = entries.where((e) => e.$1 == widget.value).firstOrNull;
     final q = searchKey(_search.text.trim());
+    final typed = widget.typedId ? int.tryParse(_search.text.trim().replaceFirst('#', '')) : null;
     final shown = [
+      if (typed != null && !entries.any((e) => e.$1 == typed)) (typed, '#$typed · usar este ID'),
       for (final e in entries)
         if (q.isEmpty || searchKey(e.$2).contains(q)) e,
     ];
@@ -888,6 +940,403 @@ class AppTabs<T> extends StatelessWidget {
   }
 }
 
+/// Underlined tabs with an optional count chip (sections of the issue dialog).
+class LineTabs<T> extends StatelessWidget {
+  const LineTabs({super.key, required this.tabs, required this.selected, required this.onChanged});
+
+  /// (value, label, icon, count).
+  final List<(T, String, IconData?, String?)> tabs;
+  final T selected;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (value, label, icon, count) in tabs)
+          Padding(
+            padding: const EdgeInsets.only(right: 22),
+            child: InkWell(
+              onTap: () => onChanged(value),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      width: 3,
+                      color: value == selected ? AppColors.accent(dark: dark) : Colors.transparent,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      Icon(
+                        icon,
+                        size: 15,
+                        color: value == selected
+                            ? AppColors.accent(dark: dark)
+                            : AppColors.mutedText(dark: dark),
+                      ),
+                      const SizedBox(width: 7),
+                    ],
+                    Text(
+                      label,
+                      style: AppText.caption(dark: dark).copyWith(
+                        fontSize: 13,
+                        color: value == selected ? AppColors.accent(dark: dark) : null,
+                        fontWeight: value == selected ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                    ),
+                    if (count != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.well(dark: dark),
+                          borderRadius: BorderRadius.circular(AppRadius.subtle),
+                        ),
+                        child: Text(
+                          count,
+                          style: AppText.badge().copyWith(color: AppColors.mutedText(dark: dark)),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Folder-like tabs of the workspace (pages and boards). Sits at the bottom of
+/// a bar with a bottom border: the selected tab has the page color and covers
+/// that line, joining the content below. When they don't fit, arrows (and the
+/// mouse wheel) scroll them; the selected tab is always scrolled into view.
+class WorkspaceTabs<T> extends StatefulWidget {
+  const WorkspaceTabs({
+    super.key,
+    required this.tabs,
+    required this.selected,
+    required this.onChanged,
+    required this.onClose,
+  });
+
+  /// (value, label, icon).
+  final List<(T, String, IconData?)> tabs;
+  final T? selected;
+  final ValueChanged<T> onChanged;
+
+  /// The ×, or a middle click.
+  final ValueChanged<T> onClose;
+
+  @override
+  State<WorkspaceTabs<T>> createState() => _WorkspaceTabsState<T>();
+}
+
+class _WorkspaceTabsState<T> extends State<WorkspaceTabs<T>> {
+  static const _height = 42.0;
+  final _scroll = ScrollController();
+  final _selectedKey = GlobalKey();
+  bool _canBack = false;
+  bool _canForward = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_sync);
+    _reveal();
+  }
+
+  @override
+  void didUpdateWidget(WorkspaceTabs<T> old) {
+    super.didUpdateWidget(old);
+    if (old.selected != widget.selected || old.tabs.length != widget.tabs.length) _reveal();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// Scrolls just enough to show the selected tab: only one of the two moves.
+  void _reveal() => WidgetsBinding.instance.addPostFrameCallback((_) {
+        final tab = _selectedKey.currentContext;
+        if (tab == null) return;
+        const duration = Duration(milliseconds: 150);
+        for (final policy in [
+          ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+          ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+        ]) {
+          Scrollable.ensureVisible(tab, duration: duration, alignmentPolicy: policy);
+        }
+      });
+
+  /// Which arrows are enabled (none shown while everything fits).
+  void _sync() {
+    if (!_scroll.hasClients) return;
+    final p = _scroll.position;
+    final back = p.pixels > p.minScrollExtent;
+    final forward = p.pixels < p.maxScrollExtent;
+    if (back != _canBack || forward != _canForward) {
+      // Arrows showing up (or leaving) change the room for the tabs.
+      if ((back || forward) != (_canBack || _canForward)) _reveal();
+      setState(() {
+        _canBack = back;
+        _canForward = forward;
+      });
+    }
+  }
+
+  void _scrollTo(double offset, {bool animate = true}) {
+    final p = _scroll.position;
+    final target = offset.clamp(p.minScrollExtent, p.maxScrollExtent);
+    animate
+        ? _scroll.animateTo(target,
+            duration: const Duration(milliseconds: 200), curve: Curves.easeOut)
+        : _scroll.jumpTo(target);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    Widget arrow(IconData icon, String tooltip, double direction, bool enabled) => IconButton(
+          visualDensity: VisualDensity.compact,
+          iconSize: 18,
+          tooltip: tooltip,
+          onPressed: enabled
+              ? () =>
+                  _scrollTo(_scroll.offset + direction * _scroll.position.viewportDimension * 0.6)
+              : null,
+          icon: Icon(icon),
+        );
+    final overflow = _canBack || _canForward;
+
+    return SizedBox(
+      height: _height,
+      child: Row(
+        children: [
+          if (overflow) arrow(Icons.chevron_left, 'Abas anteriores', -1, _canBack),
+          Expanded(
+            // Metrics change when tabs open/close or the window resizes.
+            child: NotificationListener<ScrollMetricsNotification>(
+              onNotification: (_) {
+                _sync();
+                return false;
+              },
+              child: Listener(
+                // A vertical mouse wheel scrolls the tabs sideways.
+                onPointerSignal: (event) {
+                  if (event is PointerScrollEvent && _scroll.hasClients) {
+                    _scrollTo(_scroll.offset + event.scrollDelta.dy, animate: false);
+                  }
+                },
+                child: SingleChildScrollView(
+                  controller: _scroll,
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (i, (value, label, icon)) in widget.tabs.indexed)
+                        Padding(
+                          padding: EdgeInsets.only(left: i == 0 ? 0 : 6),
+                          child: _tab(value, label, icon, dark),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (overflow) arrow(Icons.chevron_right, 'Próximas abas', 1, _canForward),
+        ],
+      ),
+    );
+  }
+
+  Widget _tab(T value, String label, IconData? icon, bool dark) {
+    final selected = value == widget.selected;
+    final color = selected ? AppColors.accent(dark: dark) : AppColors.mutedText(dark: dark);
+    final side = BorderSide(color: AppColors.border(dark: dark));
+    const radius = BorderRadius.vertical(top: Radius.circular(AppRadius.standard));
+    return GestureDetector(
+      key: selected ? _selectedKey : null,
+      onTertiaryTapUp: (_) => widget.onClose(value),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.page(dark: dark) : AppColors.sunken(dark: dark),
+          borderRadius: radius,
+          // The selected tab's accent strip, as a border so it spans the tab
+          // (a bare Container has no width in the sideways scroll view).
+          border: Border(
+            top: BorderSide(
+              width: 3,
+              color: selected ? AppColors.accent(dark: dark) : Colors.transparent,
+            ),
+          ),
+        ),
+        // On top of the hover color; the selected tab has no bottom line.
+        foregroundDecoration: BoxDecoration(
+          borderRadius: radius,
+          border: Border(
+            top: side,
+            left: side,
+            right: side,
+            bottom: selected ? BorderSide.none : side,
+          ),
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: () => widget.onChanged(value),
+            hoverColor: selected ? Colors.transparent : AppColors.fieldHover(dark: dark),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 10, 0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 15, color: color),
+                    const SizedBox(width: 7),
+                  ],
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.caption(dark: dark).copyWith(
+                        fontSize: 13,
+                        color: color,
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  InkWell(
+                    onTap: () => widget.onClose(value),
+                    borderRadius: BorderRadius.circular(AppRadius.subtle),
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.close,
+                        size: 14,
+                        semanticLabel: 'Fechar aba',
+                        color: AppColors.mutedText(dark: dark),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 40px date field: shows `dd-MM-yyyy` and opens the date picker; the ✕ clears.
+/// [value] is Redmine's `YYYY-MM-DD`, or '' for no date.
+class DateSelect extends StatelessWidget {
+  const DateSelect({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.hint = 'Sem data',
+  });
+
+  final String value;
+  final ValueChanged<String> onChanged;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    final date = DateTime.tryParse(value);
+    return ControlBox(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: date ?? DateTime.now(),
+          firstDate: DateTime(2000),
+          lastDate: DateTime(2100),
+        );
+        if (picked != null) onChanged(ymd(picked));
+      },
+      child: Row(
+        children: [
+          Icon(Icons.calendar_today_outlined, size: 15, color: AppColors.mutedText(dark: dark)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              date == null ? hint : fmtDate(value),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: date == null ? AppText.captionLight(dark: dark) : AppText.body(dark: dark),
+            ),
+          ),
+          if (date != null)
+            InkWell(
+              onTap: () => onChanged(''),
+              borderRadius: BorderRadius.circular(AppRadius.subtle),
+              child: Tooltip(
+                message: 'Limpar',
+                child: Icon(Icons.close, size: 16, color: AppColors.mutedText(dark: dark)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 40px time field (24h) that opens the time picker; [value] in minutes of the day.
+class TimeSelect extends StatelessWidget {
+  const TimeSelect({super.key, required this.value, required this.onChanged});
+
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    final time = TimeOfDay(hour: value ~/ 60 % 24, minute: value % 60);
+    return ControlBox(
+      onTap: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: time,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+            child: child!,
+          ),
+        );
+        if (picked != null) onChanged(picked.hour * 60 + picked.minute);
+      },
+      child: Row(
+        children: [
+          Icon(Icons.schedule, size: 15, color: AppColors.mutedText(dark: dark)),
+          const SizedBox(width: 8),
+          Text(
+            MaterialLocalizations.of(context).formatTimeOfDay(time, alwaysUse24HourFormat: true),
+            style: AppText.body(dark: dark),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Row of bordered buttons; the selected one is filled with the accent.
 class SegmentButtons<T> extends StatelessWidget {
   const SegmentButtons({
@@ -1033,9 +1482,12 @@ class Notice extends StatelessWidget {
   }
 }
 
-/// Shows [builder] over a blurred, dimmed backdrop.
+/// Shows [builder] over a blurred, dimmed backdrop. Opens in the nearest
+/// navigator: inside a workspace tab it covers only that tab and stays open
+/// while another tab is in front.
 Future<T?> showAppDialog<T>(BuildContext context, WidgetBuilder builder) => showDialog<T>(
       context: context,
+      useRootNavigator: false,
       barrierColor: _isDark(context) ? const Color(0xBB071018) : const Color(0x66101419),
       builder: (dialogContext) => BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
@@ -1076,77 +1528,80 @@ class AppDialog extends StatelessWidget {
       backgroundColor: Colors.transparent,
       elevation: 0,
       insetPadding: const EdgeInsets.all(15),
-      child: Container(
-        width: width ?? MediaQuery.sizeOf(context).width * 0.85,
-        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.9),
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: AppColors.panel(dark: dark),
-          border: Border.all(color: AppColors.dialogBorder(dark: dark)),
-          borderRadius: BorderRadius.circular(AppRadius.dialog),
-          boxShadow: const [
-            BoxShadow(color: Color(0x80000000), blurRadius: 90, offset: Offset(0, 30)),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.fromLTRB(22, 16, 16, 16),
-              decoration: BoxDecoration(border: Border(bottom: border)),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: DefaultTextStyle.merge(
-                      style: AppText.cardTitle(dark: dark),
-                      child: title,
-                    ),
-                  ),
-                  // Wraps instead of overflowing when there are many actions.
-                  if (headActions.isNotEmpty)
-                    // Tight, so the close button stays at the right edge.
+      // Sized by the area it opens in (the tab), not the window.
+      child: LayoutBuilder(
+        builder: (context, area) => Container(
+          width: width ?? area.maxWidth * 0.85,
+          constraints: BoxConstraints(maxHeight: area.maxHeight * 0.9),
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: AppColors.panel(dark: dark),
+            border: Border.all(color: AppColors.dialogBorder(dark: dark)),
+            borderRadius: BorderRadius.circular(AppRadius.dialog),
+            boxShadow: const [
+              BoxShadow(color: Color(0x80000000), blurRadius: 90, offset: Offset(0, 30)),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(22, 16, 16, 16),
+                decoration: BoxDecoration(border: Border(bottom: border)),
+                child: Row(
+                  children: [
                     Expanded(
-                      flex: 2,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Wrap(
-                          alignment: WrapAlignment.end,
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: headActions,
-                        ),
+                      child: DefaultTextStyle.merge(
+                        style: AppText.cardTitle(dark: dark),
+                        child: title,
                       ),
                     ),
-                  IconBtn(
-                    icon: Icons.close,
-                    tooltip: 'Fechar',
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: scrollable
-                  ? SingleChildScrollView(padding: bodyPadding, child: body)
-                  : Padding(padding: bodyPadding, child: body),
-            ),
-            if (footer.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.fromLTRB(22, 17, 22, 17),
-                decoration: BoxDecoration(border: Border(top: border)),
-                // Right-aligned; pass a Spacer() to push an item to the left.
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    for (var i = 0; i < footer.length; i++) ...[
-                      if (i > 0) const SizedBox(width: 9),
-                      footer[i],
-                    ],
+                    // Wraps instead of overflowing when there are many actions.
+                    if (headActions.isNotEmpty)
+                      // Tight, so the close button stays at the right edge.
+                      Expanded(
+                        flex: 2,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: headActions,
+                          ),
+                        ),
+                      ),
+                    IconBtn(
+                      icon: Icons.close,
+                      tooltip: 'Fechar',
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
                   ],
                 ),
               ),
-          ],
+              Flexible(
+                child: scrollable
+                    ? SingleChildScrollView(padding: bodyPadding, child: body)
+                    : Padding(padding: bodyPadding, child: body),
+              ),
+              if (footer.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.fromLTRB(22, 17, 22, 17),
+                  decoration: BoxDecoration(border: Border(top: border)),
+                  // Right-aligned; pass a Spacer() to push an item to the left.
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      for (var i = 0; i < footer.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 9),
+                        footer[i],
+                      ],
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

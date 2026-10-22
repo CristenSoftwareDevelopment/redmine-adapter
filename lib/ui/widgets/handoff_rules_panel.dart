@@ -72,7 +72,8 @@ class HandoffRulesPanel extends StatelessWidget {
     if (rule == null || !context.mounted) return;
     await _save(
       context,
-      index == null ? [...rules, rule] : ([...rules]..[index] = rule),
+      // An edited rule keeps its place among the buttons.
+      index == null ? [...rules, rule] : ([...rules]..[index] = rule.withOrder(rules[index].order)),
     );
   }
 
@@ -101,10 +102,12 @@ class _HandoffRuleDialogState extends State<_HandoffRuleDialog> {
   late final _multiTemplate =
       TextEditingController(text: widget.initial?.multiTemplate ?? defaultHandoffMultiTemplate);
   late final Set<int> _sources = {...?widget.initial?.sourceTrackerIds};
+  late final Set<int> _showStatuses = {...?widget.initial?.statusIds};
   late int? _targetTracker = widget.initial?.targetTrackerId;
   late int? _status = widget.initial?.statusId;
   late int? _timeActivity = widget.initial?.timeActivityId;
   late bool _logTime = widget.initial?.logTime ?? false;
+  late bool _bulk = widget.initial?.bulk ?? false;
 
   /// Status steps being edited; incomplete rows are dropped on save.
   late final List<({int? trackerId, int? statusId})> _steps = [
@@ -263,6 +266,23 @@ class _HandoffRuleDialogState extends State<_HandoffRuleDialog> {
               ),
             ),
             gap,
+            LabeledField(
+              label: 'Mostrar nas tarefas na situação (nenhuma marcada = todas)',
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final (id, name) in _statuses!)
+                    FilterChip(
+                      label: Text(name),
+                      selected: _showStatuses.contains(id),
+                      onSelected: (on) =>
+                          setState(() => on ? _showStatuses.add(id) : _showStatuses.remove(id)),
+                    ),
+                ],
+              ),
+            ),
+            gap,
             Wrap(
               spacing: 16,
               runSpacing: 17,
@@ -363,8 +383,22 @@ class _HandoffRuleDialogState extends State<_HandoffRuleDialog> {
               ],
             ),
           ],
-          // Same toggle for both kinds of rule.
+          // Same toggles for both kinds of rule.
           const Divider(height: 40),
+          Row(
+            children: [
+              Switch(value: _bulk, onChanged: (v) => setState(() => _bulk = v)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Permitir aplicar também em subtarefas, irmãs e relacionadas (mesmo '
+                  'comentário, situação, responsável e versão; as horas ficam só na principal)',
+                  style: AppText.body(dark: dark),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Switch(value: _logTime, onChanged: (v) => setState(() => _logTime = v)),
@@ -470,6 +504,7 @@ class _HandoffRuleDialogState extends State<_HandoffRuleDialog> {
                       name: _name.text.trim(),
                       icon: _icon,
                       sourceTrackerIds: _sources.toList(),
+                      statusIds: _showStatuses.toList(),
                       targetTrackerId: _targetTracker,
                       statusId: _status,
                       assigneeId: _assignee?.id,
@@ -483,6 +518,7 @@ class _HandoffRuleDialogState extends State<_HandoffRuleDialog> {
                           ? defaultHandoffMultiTemplate
                           : _multiTemplate.text.trim(),
                       logTime: _logTime,
+                      bulk: _bulk,
                       timeActivityId: _timeActivity,
                       statusSteps: [
                         for (final step in _steps)

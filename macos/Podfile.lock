@@ -4,6 +4,8 @@ PODS:
   - FlutterMacOS (1.0.0)
   - local_notifier (0.1.0):
     - FlutterMacOS
+  - pasteboard (0.0.1):
+    - FlutterMacOS
   - pdfium_flutter (0.1.5):
     - Flutter
     - FlutterMacOS
@@ -26,6 +28,7 @@ DEPENDENCIES:
   - file_selector_macos (from `Flutter/ephemeral/.symlinks/plugins/file_selector_macos/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - local_notifier (from `Flutter/ephemeral/.symlinks/plugins/local_notifier/macos`)
+  - pasteboard (from `Flutter/ephemeral/.symlinks/plugins/pasteboard/macos`)
   - pdfium_flutter (from `Flutter/ephemeral/.symlinks/plugins/pdfium_flutter/darwin`)
   - screen_retriever_macos (from `Flutter/ephemeral/.symlinks/plugins/screen_retriever_macos/macos`)
   - sqflite_darwin (from `Flutter/ephemeral/.symlinks/plugins/sqflite_darwin/darwin`)
@@ -41,6 +44,8 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
   local_notifier:
     :path: Flutter/ephemeral/.symlinks/plugins/local_notifier/macos
+  pasteboard:
+    :path: Flutter/ephemeral/.symlinks/plugins/pasteboard/macos
   pdfium_flutter:
     :path: Flutter/ephemeral/.symlinks/plugins/pdfium_flutter/darwin
   screen_retriever_macos:
@@ -60,6 +65,7 @@ SPEC CHECKSUMS:
   file_selector_macos: 9e9e068e90ebee155097d00e89ae91edb2374db7
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   local_notifier: ebf072651e35ae5e47280ad52e2707375cb2ae4e
+  pasteboard: b594eaf838d930b276d7a35a44a32b4f489170cb
   pdfium_flutter: e5a6e881af0b182d5b0465ebad23a8a20caa28d4
   screen_retriever_macos: 452e51764a9e1cdb74b3c541238795849f21557f
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0

@@ -70,7 +70,13 @@ class ClaudeActionsPanel extends StatelessWidget {
       (_) => _ClaudeActionDialog(initial: index == null ? null : actions[index]),
     );
     if (action == null || !context.mounted) return;
-    await _save(context, index == null ? [...actions, action] : ([...actions]..[index] = action));
+    // An edited action keeps its place among the buttons.
+    await _save(
+      context,
+      index == null
+          ? [...actions, action]
+          : ([...actions]..[index] = action.withOrder(actions[index].order)),
+    );
   }
 
   Future<void> _save(BuildContext context, List<ClaudeAction> actions) {
@@ -99,20 +105,47 @@ class _ClaudeActionDialogState extends State<_ClaudeActionDialog> {
     text: widget.initial?.template ?? '/pano-cr refs #{{numeroAtividade}}',
   );
   late int? _statusId = widget.initial?.statusId;
+  late final Set<int> _showTrackers = {...?widget.initial?.trackerIds};
+  late final Set<int> _showStatuses = {...?widget.initial?.statusIds};
+  List<(int, String)>? _trackers;
   List<(int, String)>? _statuses;
   String? _statusesError;
 
   @override
   void initState() {
     super.initState();
-    RedmineApiService()
-        .listNamed(context.read<AppState>().settings, '/issue_statuses.json', 'issue_statuses')
-        .then((s) {
-      if (mounted) setState(() => _statuses = s);
+    final api = RedmineApiService();
+    final settings = context.read<AppState>().settings;
+    Future.wait([
+      api.listNamed(settings, '/trackers.json', 'trackers'),
+      api.listNamed(settings, '/issue_statuses.json', 'issue_statuses'),
+    ]).then((lists) {
+      if (!mounted) return;
+      setState(() {
+        _trackers = lists[0];
+        _statuses = lists[1];
+      });
     }, onError: (Object e) {
       if (mounted) setState(() => _statusesError = '$e'.replaceFirst('Exception: ', ''));
     });
   }
+
+  /// Chips of a "show only on" filter; none checked = every one.
+  Widget _filter(String label, List<(int, String)> options, Set<int> picked) => LabeledField(
+        label: label,
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final (id, name) in options)
+              FilterChip(
+                label: Text(name),
+                selected: picked.contains(id),
+                onSelected: (on) => setState(() => on ? picked.add(id) : picked.remove(id)),
+              ),
+          ],
+        ),
+      );
 
   @override
   void dispose() {
@@ -229,12 +262,20 @@ class _ClaudeActionDialogState extends State<_ClaudeActionDialog> {
                   Tooltip(message: p.value, child: Tag(p.key)),
               ],
             ),
+            if (_trackers != null && _statuses != null) ...[
+              gap,
+              _filter('Mostrar nas tarefas do tipo (nenhum marcado = todos)', _trackers!,
+                  _showTrackers),
+              gap,
+              _filter('Mostrar nas tarefas na situação (nenhuma marcada = todas)', _statuses!,
+                  _showStatuses),
+            ],
             gap,
             LabeledField(
               label: 'Situação da tarefa ao abrir (ex. Em andamento)',
               child: _statusesError != null
                   ? Text(
-                      'Não foi possível carregar as situações: $_statusesError',
+                      'Não foi possível carregar tipos e situações: $_statusesError',
                       style:
                           AppText.microLabel(dark: Theme.of(context).brightness == Brightness.dark),
                     )
@@ -271,6 +312,8 @@ class _ClaudeActionDialogState extends State<_ClaudeActionDialog> {
                 cwd: _cwd.text.trim(),
                 template: _template.text.trim(),
                 statusId: _statusId,
+                trackerIds: _showTrackers.toList(),
+                statusIds: _showStatuses.toList(),
               ),
             );
           },

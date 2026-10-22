@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 import '../models/app_settings.dart';
 import '../models/monitored_query.dart';
 import '../state/app_state.dart';
+import '../services/notifications/alert_notifier.dart';
 import '../services/theme_service.dart';
 import 'components.dart';
 import 'ui_utils.dart';
@@ -36,10 +37,27 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListener {
   String _lastAlertKey = '';
-  _Page _page = _Page.monitoring;
 
-  /// Pinned query shown as a board over the regular pages, if any.
-  int? _boardQueryId;
+  /// Open tabs, in order: a [_Page] or a board's query id ([agileQueryId] too).
+  final List<Object> _tabs = [_Page.monitoring];
+
+  /// Tab in front; null when every tab was closed.
+  Object? _active = _Page.monitoring;
+
+  /// Brings [tab] to front, opening it at the end if needed.
+  void _open(Object tab) => setState(() {
+        if (!_tabs.contains(tab)) _tabs.add(tab);
+        _active = tab;
+      });
+
+  void _close(Object tab) => setState(() => _remove(tab));
+
+  /// Drops [tab]; if it was in front, the next one (or the previous) takes its place.
+  void _remove(Object tab) {
+    final i = _tabs.indexOf(tab);
+    _tabs.removeAt(i);
+    if (_active == tab) _active = _tabs.isEmpty ? null : _tabs[i.clamp(0, _tabs.length - 1)];
+  }
 
   /// User choice; null = automatic (collapsed on narrow windows).
   bool? _collapsed;
@@ -55,14 +73,27 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
   @override
   void initState() {
     super.initState();
+    AlertNotifier.instance.onClick = _openAlert;
     if (_isDesktop) {
       windowManager.addListener(this);
       trayManager.addListener(this);
     }
   }
 
+  /// OS notification clicked: the query's board if pinned, else Monitoração.
+  void _openAlert(int queryId) {
+    if (!mounted) return;
+    if (_isDesktop) {
+      windowManager.show();
+      windowManager.focus();
+    }
+    final pinned = context.read<AppState>().queries.any((q) => q.id == queryId && q.pinned);
+    _open(pinned ? queryId : _Page.monitoring);
+  }
+
   @override
   void dispose() {
+    AlertNotifier.instance.onClick = null;
     if (_isDesktop) {
       windowManager.removeListener(this);
       trayManager.removeListener(this);
@@ -117,10 +148,13 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
         final unreadAlerts = appState.alerts.where((a) => !a.isRead).length;
         final failedQueries = appState.queries.where((q) => q.lastError != null).length;
         final pinned = appState.queries.where((q) => q.pinned && q.id != null).toList();
-        final board = _boardQueryId == agileQueryId
-            ? appState.settings.agileBoard.toQuery()
-            : pinned.where((q) => q.id == _boardQueryId).firstOrNull;
-        if (board == null) _boardQueryId = null; // board was unpinned or deleted
+        final boards =
+            appState.settings.sortBoards([appState.settings.agileBoard.toQuery(), ...pinned]);
+        final boardById = {for (final b in boards) b.id!: b};
+        // Boards unpinned or deleted lose their tab.
+        for (final tab in [..._tabs]) {
+          if (tab is int && !boardById.containsKey(tab)) _remove(tab);
+        }
         final hasAccount = appState.settings.baseUrl.trim().isNotEmpty &&
             appState.settings.apiKey.trim().isNotEmpty;
         final accountName = (appState.settings.accountName?.trim().isNotEmpty ?? false)
@@ -158,30 +192,49 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                           child: ListView(
                             children: [
                               _SectionLabel('Geral', dark: dark),
-                              _navItem(_Page.monitoring, Icons.podcasts, 'Monitoração', dark,
-                                  count: unreadAlerts),
-                              _navItem(_Page.queries, Icons.search, 'Consultas', dark,
+                              _navItem(_Page.monitoring, dark, count: unreadAlerts),
+                              _navItem(_Page.queries, dark,
                                   count: failedQueries, countTone: TagTone.red),
-                              _navItem(_Page.teams, Icons.schedule, 'Tempo gasto', dark),
+                              _navItem(_Page.teams, dark),
                               _SectionLabel('Boards', dark: dark),
-                              // Built-in board, no saved query needed.
-                              _NavItem(
-                                icon: Icons.dashboard_customize_outlined,
-                                label: 'Ágil',
-                                selected: _boardQueryId == agileQueryId,
-                                dark: dark,
-                                onTap: () => setState(() => _boardQueryId = agileQueryId),
+                              // The built-in Ágil board (no saved query) and the pinned
+                              // ones, in the order dragged here (hold, then drag).
+                              ReorderableListView(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                buildDefaultDragHandles: false,
+                                onReorder: (from, to) {
+                                  final ids = [for (final b in boards) b.id!];
+                                  ids.insert(to > from ? to - 1 : to, ids.removeAt(from));
+                                  appState.setBoardOrder(ids);
+                                },
+                                children: [
+                                  for (final (i, q) in boards.indexed)
+                                    ReorderableDelayedDragStartListener(
+                                      key: ValueKey(q.id),
+                                      index: i,
+                                      child: q.id == agileQueryId
+                                          ? _NavItem(
+                                              icon: _boardIcon(q),
+                                              label: q.name,
+                                              selected: _active == agileQueryId,
+                                              dark: dark,
+                                              onTap: () => _open(agileQueryId),
+                                            )
+                                          : _NavItem(
+                                              icon: _boardIcon(q),
+                                              label: q.name,
+                                              selected: _active == q.id,
+                                              dark: dark,
+                                              count: q.lastError != null
+                                                  ? '!'
+                                                  : q.lastCount?.toString(),
+                                              countTone: q.lastError != null ? TagTone.red : null,
+                                              onTap: () => _open(q.id!),
+                                            ),
+                                    ),
+                                ],
                               ),
-                              for (final q in pinned)
-                                _NavItem(
-                                  icon: Icons.view_kanban_outlined,
-                                  label: q.name,
-                                  selected: board?.id == q.id,
-                                  dark: dark,
-                                  count: q.lastError != null ? '!' : q.lastCount?.toString(),
-                                  countTone: q.lastError != null ? TagTone.red : null,
-                                  onTap: () => setState(() => _boardQueryId = q.id),
-                                ),
                             ],
                           ),
                         ),
@@ -192,8 +245,8 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
                           ),
                           child: Column(
                             children: [
-                              _navItem(_Page.settings, Icons.tune, 'Configuração', dark),
-                              _navItem(_Page.logs, Icons.receipt_long_outlined, 'Logs', dark),
+                              _navItem(_Page.settings, dark),
+                              _navItem(_Page.logs, dark),
                               if (hasAccount)
                                 _NavItem(
                                   icon: Icons.logout,
@@ -236,57 +289,85 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
               Expanded(
                 child: Column(
                   children: [
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(hPad, 28, hPad, 30),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              board == null
-                                  ? 'Workspace / $_pageTitle'
-                                  : board.id == agileQueryId
-                                      ? 'Workspace / Ágil'
-                                      : 'Workspace / Boards / ${board.name}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.microLabel(dark: dark),
+                    // Folder tabs on a track; the selected one covers the bottom line.
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.well(dark: dark),
+                        border: Border(bottom: BorderSide(color: AppColors.border(dark: dark))),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(hPad, 10, hPad, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: WorkspaceTabs<Object>(
+                                tabs: [
+                                  for (final tab in _tabs)
+                                    switch (tab) {
+                                      _Page p => (p, p.label, p.icon),
+                                      _ => (tab, boardById[tab]!.name, _boardIcon(boardById[tab]!)),
+                                    },
+                                ],
+                                selected: _active,
+                                onChanged: _open,
+                                onClose: _close,
+                              ),
                             ),
-                          ),
-                          if (!appState.isProductionDatabase) ...[
-                            _DevTag(appState.databaseEnvironment, dark: dark),
-                            const SizedBox(width: 9),
+                            const SizedBox(width: 12),
+                            if (!appState.isProductionDatabase) ...[
+                              _DevTag(appState.databaseEnvironment, dark: dark),
+                              const SizedBox(width: 9),
+                            ],
+                            if (hasAccount) ...[
+                              _AccountAvatar(accountName, dark: dark),
+                              const SizedBox(width: 9),
+                              Text(accountName, style: AppText.microLabel(dark: dark)),
+                            ],
                           ],
-                          if (hasAccount) ...[
-                            _AccountAvatar(accountName, dark: dark),
-                            const SizedBox(width: 9),
-                            Text(accountName, style: AppText.microLabel(dark: dark)),
-                          ],
-                        ],
+                        ),
                       ),
                     ),
                     Expanded(
-                      child: Stack(
-                        children: [
-                          // Offstage keeps the pages' state while a board is open.
-                          Offstage(
-                            offstage: board != null,
-                            child: IndexedStack(
-                              index: _page.index,
-                              children: [
-                                _Page.monitoring,
-                                _Page.queries,
-                                _Page.teams,
-                                _Page.settings,
-                                _Page.logs,
-                              ].map((p) => _PageBody(page: p, hPad: hPad)).toList(),
-                            ),
-                          ),
-                          if (board != null)
-                            Padding(
-                              padding: EdgeInsets.symmetric(horizontal: hPad),
-                              child: BoardView(key: ValueKey(board.id), query: board),
-                            ),
-                        ],
+                      // Keeps the blur of a tab's dialog off the sidebar and the tab bar.
+                      child: ClipRect(
+                        child: _tabs.isEmpty
+                            ? const Align(
+                                alignment: Alignment.topCenter,
+                                child: EmptyState(
+                                  icon: Icons.tab_outlined,
+                                  text: 'Nenhuma aba aberta. Escolha uma página ou board no menu.',
+                                ),
+                              )
+                            : Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  // Hidden tabs keep their state and open dialogs. Not an
+                                  // IndexedStack: it wraps children without their keys, so
+                                  // closing one tab would rebuild the ones after it.
+                                  for (final tab in _tabs)
+                                    Visibility(
+                                      key: ValueKey(tab),
+                                      visible: tab == _active,
+                                      maintainState: true,
+                                      child: _TabNavigator(
+                                        child: Padding(
+                                          // Inside the tab, so a dialog's backdrop reaches the bar.
+                                          padding: const EdgeInsets.only(top: 28),
+                                          child: switch (tab) {
+                                            _Page p => _PageBody(page: p, hPad: hPad),
+                                            _ => Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: hPad),
+                                                child: BoardView(
+                                                  key: ValueKey(tab),
+                                                  query: boardById[tab]!,
+                                                ),
+                                              ),
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                       ),
                     ),
                   ],
@@ -299,33 +380,18 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
     );
   }
 
-  String get _pageTitle => switch (_page) {
-        _Page.monitoring => 'Monitoração',
-        _Page.queries => 'Consultas',
-        _Page.teams => 'Tempo gasto',
-        _Page.settings => 'Configuração',
-        _Page.logs => 'Logs',
-      };
+  static IconData _boardIcon(MonitoredQuery board) =>
+      board.id == agileQueryId ? Icons.dashboard_customize_outlined : Icons.view_kanban_outlined;
 
-  Widget _navItem(
-    _Page page,
-    IconData icon,
-    String label,
-    bool dark, {
-    int count = 0,
-    TagTone? countTone,
-  }) {
+  Widget _navItem(_Page page, bool dark, {int count = 0, TagTone? countTone}) {
     return _NavItem(
-      icon: icon,
-      label: label,
-      selected: _page == page && _boardQueryId == null,
+      icon: page.icon,
+      label: page.label,
+      selected: _active == page,
       dark: dark,
       count: count > 0 ? '$count' : null,
       countTone: countTone,
-      onTap: () => setState(() {
-        _page = page;
-        _boardQueryId = null;
-      }),
+      onTap: () => _open(page),
     );
   }
 
@@ -377,8 +443,30 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener, TrayListen
   }
 }
 
-/// Pages that live in the main [IndexedStack]; order = stack index.
-enum _Page { monitoring, queries, teams, settings, logs }
+/// Pages opened from the sidebar as tabs.
+enum _Page {
+  monitoring('Monitoração', Icons.podcasts),
+  queries('Consultas', Icons.search),
+  teams('Tempo gasto', Icons.schedule),
+  settings('Configuração', Icons.tune),
+  logs('Logs', Icons.receipt_long_outlined);
+
+  const _Page(this.label, this.icon);
+  final String label;
+  final IconData icon;
+}
+
+/// A tab's own navigator: dialogs opened in it ([showAppDialog]) cover only
+/// the tab and stay open while another tab is in front. With pages (not
+/// `onGenerateRoute`) the content follows rebuilds, e.g. a renamed board.
+class _TabNavigator extends StatelessWidget {
+  const _TabNavigator({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      Navigator(pages: [MaterialPage<void>(child: child)], onDidRemovePage: (_) {});
+}
 
 class _PageBody extends StatelessWidget {
   const _PageBody({required this.page, required this.hPad});

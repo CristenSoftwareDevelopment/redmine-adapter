@@ -5,7 +5,10 @@ import '../../models/app_settings.dart';
 import '../../state/app_state.dart';
 import '../../services/theme_service.dart';
 import '../components.dart';
+import 'action_order_panel.dart';
+import 'business_hours_panel.dart';
 import 'claude_actions_panel.dart';
+import 'custom_fields_panel.dart';
 import 'handoff_rules_panel.dart';
 
 /// Sub-tabs of the settings page, in display order.
@@ -13,6 +16,8 @@ enum _SettingsTab {
   connection('Conexão', Icons.link),
   notifications('Notificações', Icons.notifications_none),
   automations('Automações', Icons.bolt_outlined),
+  hours('Expediente', Icons.schedule),
+  fields('Campos', Icons.tune),
   appearance('Aparência', Icons.palette_outlined),
   backup('Backup', Icons.backup_outlined);
 
@@ -349,7 +354,13 @@ class _SettingsCardState extends State<SettingsCard> {
                   _SettingsTab.automations,
                   const Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [HandoffRulesPanel(), ClaudeActionsPanel()])),
+                      children: [
+                        HandoffRulesPanel(),
+                        ClaudeActionsPanel(),
+                        ActionOrderPanel(),
+                      ])),
+              section(_SettingsTab.hours, const BusinessHoursPanel()),
+              section(_SettingsTab.fields, const CustomFieldsPanel()),
               section(
                 _SettingsTab.appearance,
                 Panel(

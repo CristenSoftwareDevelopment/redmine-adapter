@@ -12,23 +12,27 @@ import '../../state/app_state.dart';
 import '../components.dart';
 import '../ui_utils.dart';
 import 'issue_detail_dialog.dart';
+import 'issue_actions.dart';
+import 'issue_tree.dart';
+import 'note_editor.dart';
 import 'send_steps.dart';
 import 'time_entry_fields.dart';
 
 /// Comments on another issue (usually the QA one) mentioning notes of
 /// [source], its subtasks or its siblings covered by the rule, optionally
 /// changing its status and assignee. [source] must be loaded with
-/// `include=journals,relations,children`.
-Future<void> showHandoffDialog(
+/// `include=journals,relations,children`. True when something was sent.
+Future<bool> showHandoffDialog(
   BuildContext context,
   RedmineIssue source,
   List<HandoffRule> rules, {
   int? noteIndex,
-}) =>
-    showAppDialog<void>(
+}) async =>
+    await showAppDialog<bool>(
       context,
       (_) => _HandoffDialog(source: source, rules: rules, noteIndex: noteIndex),
-    );
+    ) ??
+    false;
 
 class _HandoffDialog extends StatefulWidget {
   const _HandoffDialog({required this.source, required this.rules, this.noteIndex});
@@ -44,6 +48,7 @@ class _HandoffDialog extends StatefulWidget {
 class _HandoffDialogState extends State<_HandoffDialog> {
   final _api = RedmineApiService();
   final _comment = TextEditingController();
+  final List<PendingFile> _files = [];
   final _manualId = TextEditingController();
 
   late HandoffRule _rule = widget.rules.first;
@@ -72,16 +77,25 @@ class _HandoffDialogState extends State<_HandoffDialog> {
   int _targetSeq = 0;
   RedmineIssue? _target;
   List<TeamMember>? _members;
+  List<(int, String)>? _versions;
   String? _targetError;
+
+  /// Rules with `bulk`: issues linked to the target that get the same update
+  /// when checked.
+  IssueTree? _tree;
+  String? _treeError;
+  final Set<int> _checked = {};
 
   /// Null = keep the target's current value.
   int? _statusId;
   int? _assigneeId;
+  int? _versionId;
   bool _sending = false;
 
   // Code review closing steps, each shown only when the rule configures it.
   List<(int, String)>? _activities;
   final _hours = TextEditingController();
+  final _extra = TextEditingController();
   final _timeComment = TextEditingController();
   late int _timeIssueId = widget.source.id;
   late int? _timeActivityId = _rule.timeActivityId;
@@ -101,20 +115,28 @@ class _HandoffDialogState extends State<_HandoffDialog> {
   /// never run again, so retrying can't post the QA comment twice.
   final Map<String, StepResult> _results = {};
 
-  /// Last update of the opened issue: the hours default to the time since then.
-  late final DateTime? _lastUpdate = () {
-    final journals = (widget.source.json['journals'] as List? ?? const []).cast<Map>();
-    return DateTime.tryParse('${journals.lastOrNull?['created_on']}') ?? widget.source.updatedOn;
-  }();
+  /// Where the hours count from on the opened issue ([timeBases]); null while loading.
+  List<TimeBase>? _bases;
+  int? _base;
 
   @override
   void initState() {
     super.initState();
     _render();
-    if (_rule.logTime && _lastUpdate != null) {
-      _hours.text = elapsedHm(_lastUpdate, DateTime.now());
-    }
+    if (_rule.logTime) _loadBases();
     _load();
+  }
+
+  Future<void> _loadBases() async {
+    final (bases, base) = await loadTimeBases(context.read<AppState>().settings, widget.source);
+    if (!mounted) return;
+    setState(() {
+      _bases = bases;
+      _base = base;
+      if (_hours.text.isEmpty && _extra.text.isEmpty && bases.isNotEmpty) {
+        fillHoursFrom(context, bases[base].at, _hours, _extra);
+      }
+    });
   }
 
   @override
@@ -122,6 +144,7 @@ class _HandoffDialogState extends State<_HandoffDialog> {
     _comment.dispose();
     _manualId.dispose();
     _hours.dispose();
+    _extra.dispose();
     _timeComment.dispose();
     super.dispose();
   }
@@ -246,25 +269,62 @@ class _HandoffDialogState extends State<_HandoffDialog> {
       _targetId = id;
       _target = null;
       _members = null;
+      _versions = null;
       _targetError = null;
+      _tree = null;
+      _treeError = null;
+      _checked.clear();
       _statusId = _rule.statusId;
       _assigneeId = _rule.assigneeId;
+      _versionId = null;
     });
     try {
-      final data = await _api.getJson(settings, '/issues/$id.json');
+      final data =
+          // Attachments: inline images in the comment preview.
+          await _api.getJson(
+              settings, '/issues/$id.json?include=attachments${_rule.bulk ? ',relations' : ''}');
       final target = RedmineIssue(data['issue'] as Map<String, dynamic>);
-      final members = await _api.listProjectMembers(settings, target.refId('project')!);
+      final project = target.refId('project')!;
+      final results = await Future.wait<Object?>([
+        _api.listProjectMembers(settings, project),
+        _api.listVersions(settings, project).catchError((Object _) => const <(int, String)>[]),
+      ]);
       if (!mounted || seq != _targetSeq) return;
       setState(() {
         _target = target;
-        _members = members;
+        _members = results[0] as List<TeamMember>;
+        _versions = results[1] as List<(int, String)>;
       });
+      if (_rule.bulk) await _loadTree(target, seq);
     } catch (error) {
       if (mounted && seq == _targetSeq) {
         setState(() => _targetError = '$error'.replaceFirst('Exception: ', ''));
       }
     }
   }
+
+  /// Subtasks, siblings and related issues of the target (rules with `bulk`).
+  Future<void> _loadTree(RedmineIssue target, int seq) async {
+    try {
+      final tree = await IssueTree.load(context.read<AppState>().settings, target);
+      if (!mounted || seq != _targetSeq) return;
+      setState(() {
+        _tree = tree;
+        _checked.add(target.id);
+      });
+    } catch (error) {
+      if (mounted && seq == _targetSeq) {
+        setState(() => _treeError = '$error'.replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
+  /// Checked issues linked to the target, besides the target.
+  List<RedmineIssue> get _extras => [
+        if (_tree case final tree?)
+          for (final r in tree.rows)
+            if (r.issue.id != _targetId && _checked.contains(r.issue.id)) r.issue,
+      ];
 
   void _useManualId() {
     final id = int.tryParse(_manualId.text.trim().replaceFirst('#', ''));
@@ -305,13 +365,60 @@ class _HandoffDialogState extends State<_HandoffDialog> {
         {for (final n in _selected) n.$1},
       );
 
-  bool get _hoursBlocked => _rule.logTime && timeEntryBlocked(_hours, _timeActivityId);
+  bool get _hoursBlocked => _rule.logTime && timeEntryBlocked(_hours, _timeActivityId, _extra);
+
+  /// (step, issue, status) of the checked status steps. An issue checked in
+  /// two steps only moves in the first one.
+  List<(int, RedmineIssue, int)> get _statusMoves {
+    final moved = <int>{};
+    return [
+      for (final (k, step) in _rule.statusSteps.indexed)
+        if (_stepStatus.elementAtOrNull(k) case final status?)
+          if (_stepIssues(step.trackerId) case final issues)
+            for (final i in issues)
+              if (_stepChecked(k, i, _stepDefaults(issues)) && moved.add(i.id)) (k, i, status),
+    ];
+  }
+
+  /// Target members as choices, plus the rule's default assignee when it
+  /// isn't a member of the target's project.
+  List<(int, String)> get _memberOptions => [
+        for (final m in _members ?? const <TeamMember>[]) (m.id, m.name),
+        if (_assigneeId != null && !(_members ?? const []).any((m) => m.id == _assigneeId))
+          (_assigneeId!, _rule.assigneeName ?? '#$_assigneeId'),
+      ];
+
+  /// Field changes this send makes (target and status steps), asked before
+  /// the first run.
+  List<String> get _changes {
+    final target = _target;
+    final extras = _extras;
+    List<String> lines(RedmineIssue issue) => changeLines(
+          issue,
+          status: _statusId,
+          assignee: _assigneeId,
+          version: _versionId,
+          statuses: _statuses,
+          members: _memberOptions,
+          versions: _versions,
+          prefix: '#${issue.id} ',
+        );
+    return [
+      if (target != null) ...lines(target),
+      for (final i in extras) ...lines(i),
+      if (extras.isNotEmpty) 'Comentário também em ${extras.map((i) => '#${i.id}').join(', ')}',
+      for (final (_, i, status) in _statusMoves)
+        if (status != i.statusId)
+          '#${i.id} situação: ${i.statusName} → ${optionName(_statuses, status)}',
+    ];
+  }
 
   /// Steps of this send, in order: (key, summary, run). `run` returns a
   /// warning ('' = all fine) or throws when the step failed.
   List<SendStep> _steps(AppSettings settings) {
     final target = _target;
-    final hours = parseHours(_hours.text);
+    final hours = totalHours(_hours, _extra);
+    final extraHours = parseHours(_extra.text);
     final statusNames = {for (final (id, name) in _statuses ?? const <(int, String)>[]) id: name};
     String notApplied(int id) =>
         'o Redmine não aplicou a situação de #$id (workflow ou sem permissão)';
@@ -320,40 +427,37 @@ class _HandoffDialogState extends State<_HandoffDialog> {
             ? ''
             : throw Exception(notApplied(issueId));
 
-    // An issue checked in two steps only moves in the first one.
-    final moved = <int>{};
     final statusSteps = [
-      for (final (k, step) in _rule.statusSteps.indexed)
-        if (_stepStatus.elementAtOrNull(k) case final status?)
-          if (_stepIssues(step.trackerId) case final issues)
-            for (final i in issues)
-              if (_stepChecked(k, i, _stepDefaults(issues)) && moved.add(i.id))
-                (
-                  'status:$k:${i.id}',
-                  '#${i.id} em ${statusNames[status] ?? status}',
-                  () => moveTo(i.id, status),
-                ),
+      for (final (k, i, status) in _statusMoves)
+        (
+          'status:$k:${i.id}',
+          '#${i.id} em ${statusNames[status] ?? status}',
+          () => moveTo(i.id, status),
+        ),
     ];
 
+    // The comment on the target and each checked extra; attachments go up
+    // again per issue (an upload token is used once).
+    Future<String> send(int id) async {
+      final extra = {
+        'notes': _comment.text.trim(),
+        if (_assigneeId != null) 'assigned_to_id': _assigneeId,
+        if (_versionId != null) 'fixed_version_id': _versionId,
+        if (_files.isNotEmpty) 'uploads': await uploadFiles(settings, _files),
+      };
+      if (_statusId == null) {
+        await _api.putJson(settings, '/issues/$id.json', {'issue': extra});
+        return '';
+      }
+      final applied = await _api.setIssueStatus(settings, id, _statusId!, extra: extra);
+      return applied ? '' : 'Comentário enviado, mas ${notApplied(id)}.';
+    }
+
     return [
-      if (target != null)
-        (
-          'qa',
-          'Trâmite enviado para #${target.id}',
-          () async {
-            final extra = {
-              'notes': _comment.text.trim(),
-              if (_assigneeId != null) 'assigned_to_id': _assigneeId,
-            };
-            if (_statusId == null) {
-              await _api.putJson(settings, '/issues/${target.id}.json', {'issue': extra});
-              return '';
-            }
-            final applied =
-                await _api.setIssueStatus(settings, target.id, _statusId!, extra: extra);
-            return applied ? '' : 'Comentário enviado, mas ${notApplied(target.id)}.';
-          },
-        ),
+      if (target != null) ...[
+        ('qa', 'Trâmite enviado para #${target.id}', () => send(target.id)),
+        for (final i in _extras) ('qa:${i.id}', 'Trâmite enviado para #${i.id}', () => send(i.id)),
+      ],
       if (_rule.logTime && hours != null && _timeActivityId != null)
         (
           'time',
@@ -370,6 +474,8 @@ class _HandoffDialogState extends State<_HandoffDialog> {
             return '';
           },
         ),
+      if (_rule.logTime && hours != null && _timeActivityId != null && extraHours != null)
+        overtimeStep(context, _results, extraHours, _timeIssueId, _timeComment.text.trim()),
       ...statusSteps,
     ];
   }
@@ -380,6 +486,13 @@ class _HandoffDialogState extends State<_HandoffDialog> {
   Future<void> _send() async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final changes = _changes;
+    if (_results.isEmpty &&
+        changes.isNotEmpty &&
+        !await confirmChanges(context, '${_rule.name} · #${widget.source.id}', changes)) {
+      return;
+    }
+    if (!mounted) return;
     final steps = _steps(context.read<AppState>().settings);
     setState(() => _sending = true);
     final clean = await runSendSteps(steps, _results, () {
@@ -388,7 +501,7 @@ class _HandoffDialogState extends State<_HandoffDialog> {
     if (!mounted) return;
     setState(() => _sending = false);
     if (clean) {
-      navigator.pop();
+      navigator.pop(true);
       messenger.showSnackBar(
         SnackBar(content: Text('Feito: ${steps.map((s) => s.$2).join(' · ')}.')),
       );
@@ -415,15 +528,20 @@ class _HandoffDialogState extends State<_HandoffDialog> {
                 items: [
                   for (final r in widget.rules) DropdownMenuItem(value: r, child: Text(r.name)),
                 ],
-                onChanged: (r) => setState(() {
-                  _rule = r!;
-                  _statusId = r.statusId;
-                  _assigneeId = r.assigneeId;
-                  _timeActivityId = r.timeActivityId;
-                  _stepStatus = [for (final s in r.statusSteps) s.statusId];
-                  _stepPicked.clear();
-                  _render();
-                }),
+                onChanged: (r) {
+                  setState(() {
+                    _rule = r!;
+                    _statusId = r.statusId;
+                    _assigneeId = r.assigneeId;
+                    _versionId = null;
+                    _timeActivityId = r.timeActivityId;
+                    _stepStatus = [for (final s in r.statusSteps) s.statusId];
+                    _stepPicked.clear();
+                    _render();
+                  });
+                  // Reloads the target with (or without) its linked issues.
+                  if (_targetId case final id?) _selectTarget(id);
+                },
               ),
             ),
             gap,
@@ -435,11 +553,13 @@ class _HandoffDialogState extends State<_HandoffDialog> {
           gap,
           LabeledField(
             label: 'Comentário',
-            child: TextField(
+            child: NoteEditor(
               controller: _comment,
+              files: _files,
+              attachments: (_target?.json['attachments'] as List? ?? const []).cast<Map>(),
               minLines: 3,
               maxLines: 8,
-              onChanged: (_) => setState(() {}),
+              onChanged: () => setState(() {}),
             ),
           ),
           if (_rule.logTime) ...[
@@ -457,14 +577,14 @@ class _HandoffDialogState extends State<_HandoffDialog> {
         ],
       ),
       footer: [
-        OutlinedButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
+        OutlinedButton(onPressed: _close, child: const Text('Cancelar')),
         _sendButton(),
       ],
     );
   }
+
+  /// Something already sent: the opener reloads even on Cancelar.
+  void _close() => Navigator.of(context).pop(_results.values.any((r) => r.done));
 
   /// "Enviar" until something ran; then "Tentar de novo" for what is left,
   /// or "Fechar" when every step is done (some with a warning).
@@ -477,8 +597,7 @@ class _HandoffDialogState extends State<_HandoffDialog> {
     final qaReady = _results['qa']?.done == true ||
         (_target != null && _selected.isNotEmpty && _comment.text.trim().isNotEmpty);
     if (_results.isNotEmpty && pending.isEmpty) {
-      return FilledButton(
-          onPressed: () => Navigator.of(context).pop(), child: const Text('Fechar'));
+      return FilledButton(onPressed: _close, child: const Text('Fechar'));
     }
     return FilledButton.icon(
       onPressed: !qaReady || _hoursBlocked || _sending || pending.isEmpty ? null : _send,
@@ -499,12 +618,15 @@ class _HandoffDialogState extends State<_HandoffDialog> {
     final devs = _timeIssues;
     return TimeEntryFields(
       hours: _hours,
+      extra: _extra,
       comment: _timeComment,
       activities: _activities,
       activityId: _timeActivityId,
       onActivity: (v) => setState(() => _timeActivityId = v),
       onChanged: () => setState(() {}),
-      since: _lastUpdate,
+      bases: _bases,
+      base: _base,
+      onBase: (i) => setState(() => _base = i),
       issuePicker: SearchSelect(
         value: _timeIssueId,
         options: [for (final d in devs) (d.id, '#${d.id} · ${d.subject}')],
@@ -809,12 +931,6 @@ class _HandoffDialogState extends State<_HandoffDialog> {
     if (target == null || _statuses == null || _members == null) {
       return const LinearProgressIndicator(minHeight: 2);
     }
-    // The rule's default assignee may not be a member of this project.
-    final members = [
-      ..._members!,
-      if (_assigneeId != null && !_members!.any((m) => m.id == _assigneeId))
-        TeamMember(id: _assigneeId!, name: _rule.assigneeName ?? '#$_assigneeId'),
-    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -834,11 +950,41 @@ class _HandoffDialogState extends State<_HandoffDialog> {
           label: 'Responsável',
           child: SearchSelect(
             value: _assigneeId,
-            options: [for (final m in members) (m.id, m.name)],
+            options: _memberOptions,
             none: 'Manter o atual (${target.assigneeName ?? 'ninguém'})',
             onChanged: (v) => setState(() => _assigneeId = v),
           ),
         ),
+        const SizedBox(height: 12),
+        LabeledField(
+          label: 'Versão',
+          child: SearchSelect(
+            value: _versionId,
+            options: _versions ?? const [],
+            none: 'Manter a atual (${target.nameOf('fixed_version') ?? 'nenhuma'})',
+            onChanged: (v) => setState(() => _versionId = v),
+          ),
+        ),
+        if (_rule.bulk) ...[
+          const SizedBox(height: 12),
+          LabeledField(
+            label: 'Aplicar também em',
+            child: _treeError != null
+                ? Text(
+                    'Não foi possível carregar as tarefas ligadas: $_treeError',
+                    style: AppText.microLabel(dark: dark)
+                        .copyWith(color: AppColors.danger(dark: dark)),
+                  )
+                : _tree == null
+                    ? const LinearProgressIndicator(minHeight: 2)
+                    : IssueTreeList(
+                        tree: _tree!,
+                        checked: _checked,
+                        locked: {target.id},
+                        onChanged: () => setState(() {}),
+                      ),
+          ),
+        ],
       ],
     );
   }

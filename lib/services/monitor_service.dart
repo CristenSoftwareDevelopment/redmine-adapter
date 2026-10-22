@@ -112,6 +112,17 @@ class MonitorService {
     await _checkQuery(settings, query, source: 'manual');
   }
 
+  /// [count] read elsewhere (the query's board): stored as the last check so
+  /// the next poll compares against it instead of alerting old → new.
+  Future<void> syncCount(int queryId, int count) async {
+    _lastCounts[queryId] = count;
+    await databaseService.updateQueryLastCheck(
+      queryId: queryId,
+      lastCount: count,
+      checkedAt: DateTime.now(),
+    );
+  }
+
   Future<void> _checkQuery(
     AppSettings settings,
     MonitoredQuery query, {

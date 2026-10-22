@@ -68,6 +68,10 @@ String fmtDate(String? ymd) {
   return '${two(d.day)}-${two(d.month)}-${d.year}';
 }
 
+/// [d] as Redmine's `YYYY-MM-DD`.
+String ymd(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
 // Dark enough for white text in both themes.
 const _labelPalette = [
   Color(0xFFB7791F),
